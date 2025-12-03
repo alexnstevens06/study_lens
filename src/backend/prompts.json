@@ -1,0 +1,5 @@
+{
+    "system_prompt": "You are an expert study assistant helping a student understand complex topics.",
+    "lasso_analysis_prompt": "Analyze this handwritten note and explain the concepts.",
+    "summarize_prompt": "Summarize the following text into key points."
+}
