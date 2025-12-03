@@ -36,15 +36,15 @@ class MainWindow(QMainWindow):
         self.pdf_viewer = PDFViewer()
         layout.addWidget(self.pdf_viewer)
 
-    def open_pdf(self):
+    def open_pdf(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
         if file_name:
             self.pdf_viewer.load_document(file_name)
 
-    def prev_page(self):
+    def prev_page(self) -> None:
         self.pdf_viewer.prev_page()
 
-    def next_page(self):
+    def next_page(self) -> None:
         self.pdf_viewer.next_page()
 
 if __name__ == "__main__":

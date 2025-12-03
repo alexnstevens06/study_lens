@@ -1,6 +1,6 @@
 import fitz  # PyMuPDF
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPinchGesture, QSwipeGesture
-from PyQt6.QtGui import QPixmap, QImage, QInputDevice
+from PyQt6.QtGui import QPixmap, QImage, QInputDevice, QPointingDevice
 from PyQt6.QtCore import Qt, QEvent
 from src.frontend.ink_canvas import InkCanvas
 
@@ -28,7 +28,7 @@ class PDFViewer(QGraphicsView):
         self._is_panning = False
         self._last_pan_pos = None
 
-    def load_document(self, file_path):
+    def load_document(self, file_path: str) -> None:
         try:
             self.doc = fitz.open(file_path)
             self.current_page_num = 0
@@ -36,7 +36,7 @@ class PDFViewer(QGraphicsView):
         except Exception as e:
             print(f"Error loading document: {e}")
 
-    def render_page(self):
+    def render_page(self) -> None:
         if not self.doc:
             return
 
@@ -57,29 +57,30 @@ class PDFViewer(QGraphicsView):
         self.scene.addPixmap(pixmap)
         self.setSceneRect(0, 0, pix.width, pix.height)
 
-    def viewportEvent(self, event):
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Gesture:
+            return self.gesture_event(event)
+        return super().event(event)
+
+    def viewportEvent(self, event: QEvent) -> bool:
         if event.type() in [QEvent.Type.TabletPress, QEvent.Type.TabletMove, QEvent.Type.TabletRelease]:
             # Handle Tablet Events
             return self.handle_tablet_event(event)
         return super().viewportEvent(event)
 
-    def handle_tablet_event(self, event):
+    def handle_tablet_event(self, event: QEvent) -> bool:
         pos = self.mapToScene(event.position().toPoint())
         pressure = event.pressure()
         pointer_type = event.pointerType()
         buttons = event.buttons()
         
-        # Debugging
-        # print(f"DEBUG: Tablet Event: {event.type()} Pointer: {pointer_type} Buttons: {buttons}")
-
         # Determine Tool
-        if pointer_type == QInputDevice.DeviceType.Eraser:
+        if pointer_type == QPointingDevice.PointerType.Eraser:
             self.scene.tool = "eraser"
-        elif (buttons & Qt.MouseButton.RightButton) or \
-             (buttons & Qt.MouseButton.MiddleButton) or \
-             (buttons & Qt.MouseButton.BackButton) or \
-             (buttons & Qt.MouseButton.ForwardButton):
-            self.scene.tool = "eraser"
+            # print("Pointer Type: Eraser")
+        elif (buttons & Qt.MouseButton.RightButton):
+            self.scene.tool = "lasso"
+            # print("Right Button Pressed (Lasso)")
         else:
             self.scene.tool = "pencil"
 
@@ -106,7 +107,7 @@ class PDFViewer(QGraphicsView):
         return False
 
     # Manual Panning for Touch/Mouse (ignores Pen which sends TabletEvents)
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event: QEvent) -> None:
         print(f"DEBUG: View MousePress Button: {event.button()} Buttons: {event.buttons()} Device: {event.device().type()} Name: {event.device().name()}")
         # Ignore Stylus input (let it pass to Scene for drawing)
         if event.device().type() == QInputDevice.DeviceType.Stylus:
@@ -121,7 +122,7 @@ class PDFViewer(QGraphicsView):
         else:
             super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event):
+    def mouseMoveEvent(self, event: QEvent) -> None:
         # Ignore Stylus
         if event.device().type() == QInputDevice.DeviceType.Stylus:
             super().mouseMoveEvent(event)
@@ -140,7 +141,7 @@ class PDFViewer(QGraphicsView):
         else:
             super().mouseMoveEvent(event)
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, event: QEvent) -> None:
         # Ignore Stylus
         if event.device().type() == QInputDevice.DeviceType.Stylus:
             super().mouseReleaseEvent(event)
@@ -153,7 +154,8 @@ class PDFViewer(QGraphicsView):
         else:
             super().mouseReleaseEvent(event)
 
-    def gesture_event(self, event):
+    def gesture_event(self, event: QEvent) -> bool:
+        print(f"[DEBUG] gesture_event: {event}")
         pinch = event.gesture(Qt.GestureType.PinchGesture)
         swipe = event.gesture(Qt.GestureType.SwipeGesture)
         
@@ -165,27 +167,26 @@ class PDFViewer(QGraphicsView):
             
         return True
 
-    def pinch_triggered(self, gesture: QPinchGesture):
+    def pinch_triggered(self, gesture: QPinchGesture) -> None:
         change_flags = gesture.changeFlags()
         if change_flags & QPinchGesture.ChangeFlag.ScaleFactorChanged:
             scale_factor = gesture.scaleFactor()
             self.scale(scale_factor, scale_factor)
 
-    def swipe_triggered(self, gesture: QSwipeGesture):
+    def swipe_triggered(self, gesture: QSwipeGesture) -> None:
         print(gesture.state())
         if gesture.state() == Qt.GestureState.GestureFinished:
             if gesture.horizontalDirection() == QSwipeGesture.SwipeDirection.Left:
-                
                 self.next_page()
             elif gesture.horizontalDirection() == QSwipeGesture.SwipeDirection.Right:
                 self.prev_page()
 
-    def next_page(self):
+    def next_page(self) -> None:
         if self.doc and self.current_page_num < len(self.doc) - 1:
             self.current_page_num += 1
             self.render_page()
 
-    def prev_page(self):
+    def prev_page(self) -> None:
         if self.doc and self.current_page_num > 0:
             self.current_page_num -= 1
             self.render_page()
