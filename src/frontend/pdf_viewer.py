@@ -1,7 +1,7 @@
 import fitz  # PyMuPDF
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPinchGesture, QSwipeGesture, QScroller, QScrollerProperties, QApplication
-from PyQt6.QtGui import QPixmap, QImage, QInputDevice, QPointingDevice, QColor, QMouseEvent
-from PyQt6.QtCore import Qt, QEvent, QTime
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPinchGesture, QSwipeGesture, QScroller, QScrollerProperties
+from PyQt6.QtGui import QPixmap, QImage, QInputDevice, QPointingDevice, QColor
+from PyQt6.QtCore import Qt, QEvent
 from src.frontend.ink_canvas import InkCanvas
 import os
 from datetime import datetime
@@ -42,10 +42,6 @@ class PDFViewer(QGraphicsView):
         # Panning State
         self._is_panning = False
         self._last_pan_pos = None
-
-        # Double Tap Detection
-        self._last_click_time = 0
-        self._last_click_pos = None
 
     def set_document(self, doc, is_new_file: bool = False) -> None:
         self.doc = doc
@@ -143,36 +139,11 @@ class PDFViewer(QGraphicsView):
         return False
 
     # Manual Panning for Touch/Mouse (ignores Pen which sends TabletEvents)
-    def mousePressEvent(self, event: QMouseEvent) -> None:
+    def mousePressEvent(self, event: QEvent) -> None:
         # Ignore Stylus input (let it pass to Scene for drawing)
         if event.device().type() == QInputDevice.DeviceType.Stylus:
             super().mousePressEvent(event)
             return
-
-        # Double Tap Detection Logic
-        current_time = QTime.currentTime().msecsSinceStartOfDay()
-        is_double_tap = False
-        
-        current_pos = event.position().toPoint()
-
-        if self._last_click_pos is not None:
-            time_diff = current_time - self._last_click_time
-            # Calculate manhattan length manually or use QPoint method
-            diff = current_pos - self._last_click_pos
-            dist = diff.manhattanLength()
-            
-            # Thresholds: 400ms and 20 pixels
-            if time_diff < 500 and dist < 100:
-                is_double_tap = True
-        
-        self._last_click_time = current_time
-        self._last_click_pos = current_pos
-
-        if is_double_tap:
-            # Attempt paste
-            if self.paste_image_from_clipboard(event.pos()):
-                event.accept()
-                return
 
         if event.button() == Qt.MouseButton.LeftButton:
             self._is_panning = True
@@ -213,36 +184,6 @@ class PDFViewer(QGraphicsView):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-        if self.paste_image_from_clipboard(event.pos()):
-            event.accept()
-        else:
-            super().mouseDoubleClickEvent(event)
-
-    def paste_image_from_clipboard(self, view_pos) -> bool:
-        # Check for clipboard image
-        clipboard = QApplication.clipboard()
-        mime_data = clipboard.mimeData()
-        
-        if mime_data.hasImage():
-            image = clipboard.image()
-            if not image.isNull():
-                # Convert to QPixmap
-                pixmap = QPixmap.fromImage(image)
-                
-                # Get position in scene coordinates
-                scene_pos = self.mapToScene(view_pos)
-                
-                # Add to scene
-                # Center the image on the cursor/touch point
-                item = self.scene.addPixmap(pixmap)
-                # Offset by half width/height to center
-                item.setPos(scene_pos.x() - pixmap.width() / 2, scene_pos.y() - pixmap.height() / 2)
-                
-                print(f"[DEBUG] Image pasted from clipboard at {scene_pos}")
-                return True
-        return False
 
     def gesture_event(self, event: QEvent) -> bool:
         pinch = event.gesture(Qt.GestureType.PinchGesture)
