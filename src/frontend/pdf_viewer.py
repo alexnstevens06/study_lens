@@ -3,8 +3,8 @@ from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPinchGesture, QSwipe
 from PyQt6.QtGui import QPixmap, QImage, QInputDevice, QPointingDevice, QColor
 from PyQt6.QtCore import Qt, QEvent
 from src.frontend.gestures.base_gesture import BaseGesture
-from src.config_manager import ConfigManager
-from src.loader_utils import load_classes_from_path
+from src.frontend.config_manager import ConfigManager
+from src.frontend.loader_utils import load_classes_from_path
 from src.frontend.ink_canvas import InkCanvas
 from src.frontend.gestures.gesture_manager import GestureManager
 import os

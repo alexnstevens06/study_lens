@@ -5,9 +5,9 @@ import pkgutil
 import inspect
 from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QToolBar
 from src.frontend.pdf_viewer import PDFViewer
-from src.modules.base_module import BaseModule
-from src.config_manager import ConfigManager
-from src.loader_utils import load_classes_from_path
+from src.frontend.modules.base_module import BaseModule
+from src.frontend.config_manager import ConfigManager
+from src.frontend.loader_utils import load_classes_from_path
 import os
 
 class MainWindow(QMainWindow):
