@@ -97,7 +97,8 @@ class PDFViewer(QGraphicsView):
         pixmap = QPixmap.fromImage(img)
         
         self.scene.clear()
-        self.scene.addPixmap(pixmap)
+        bg_item = self.scene.addPixmap(pixmap)
+        bg_item.setData(Qt.ItemDataRole.UserRole, "background")
         self.setSceneRect(0, 0, pix.width, pix.height)
 
     def event(self, event: QEvent) -> bool:
@@ -159,7 +160,39 @@ class PDFViewer(QGraphicsView):
             annot.set_border(width=stroke["width"] / self.zoom_level)
             annot.update()
             
+        # Save Images
+        images = self.scene.get_images()
+        print(f"[DEBUG] Found {len(images)} images to save.")
+        for img_data in images:
+            try:
+                # Convert QImage to bytes (PNG format)
+                qimage = img_data["image"]
+                from PyQt6.QtCore import QBuffer, QIODevice
+                ba = QBuffer()
+                ba.open(QIODevice.OpenModeFlag.ReadWrite)
+                qimage.save(ba, "PNG")
+                image_bytes = ba.data().data()
+                
+                # Calculate PDF coordinates
+                # Scene coordinates are zoomed, so divide by zoom_level
+                x = img_data["x"] / self.zoom_level
+                y = img_data["y"] / self.zoom_level
+                w = img_data["width"] / self.zoom_level
+                h = img_data["height"] / self.zoom_level
+                
+                print(f"[DEBUG] Saving image at PDF coords: {x}, {y}, {w}, {h}")
+                
+                # Create rectangle
+                rect = fitz.Rect(x, y, x + w, y + h)
+                
+                # Insert image
+                page.insert_image(rect, stream=image_bytes)
+                print("[DEBUG] Image inserted successfully.")
+            except Exception as e:
+                print(f"[ERROR] Error saving image: {e}")
+            
         if save_to_disk:
+            print("[DEBUG] Saving document to disk...")
             if self.is_new_file:
                 # Create notes folder if it doesn't exist
                 notes_dir = os.path.join(os.getcwd(), "notes")
@@ -172,9 +205,12 @@ class PDFViewer(QGraphicsView):
                 self.doc.save(file_path)
                 self.doc = fitz.open(file_path) # Re-open as real file
                 self.is_new_file = False
+                print(f"[DEBUG] Saved new file to {file_path}")
             else:
                 try:
                     self.doc.saveIncr()
+                    print("[DEBUG] Saved incrementally.")
                 except Exception as e:
-                    print(f"Error saving document: {e}")
+                    print(f"[ERROR] Error saving document incrementally: {e}")
                     self.doc.save(self.doc.name)
+                    print(f"[DEBUG] Saved full document to {self.doc.name}")

@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem
-from PyQt6.QtGui import QPainterPath, QPen, QColor
+from PyQt6.QtGui import QPainterPath, QPen, QColor, QImage
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
 class InkCanvas(QGraphicsScene):
@@ -66,3 +66,49 @@ class InkCanvas(QGraphicsScene):
                         "width": item.pen().width()
                     })
         return strokes
+
+    def add_image(self, image: QImage, pos: QPointF = None) -> None:
+        from PyQt6.QtWidgets import QGraphicsPixmapItem
+        from PyQt6.QtGui import QPixmap
+        
+        pixmap = QPixmap.fromImage(image)
+        item = QGraphicsPixmapItem(pixmap)
+        
+        if pos:
+            # Center the image at the position
+            item.setPos(pos.x() - pixmap.width() / 2, pos.y() - pixmap.height() / 2)
+            
+        item.setFlags(QGraphicsPixmapItem.GraphicsItemFlag.ItemIsSelectable | 
+                      QGraphicsPixmapItem.GraphicsItemFlag.ItemIsMovable | 
+                      QGraphicsPixmapItem.GraphicsItemFlag.ItemIsFocusable)
+        
+        self.addItem(item)
+
+    def get_images(self) -> list:
+        images = []
+        for item in self.items():
+            from PyQt6.QtWidgets import QGraphicsPixmapItem
+            if isinstance(item, QGraphicsPixmapItem):
+                if item.data(Qt.ItemDataRole.UserRole) == "background":
+                    continue
+                    
+                # Get position
+                pos = item.pos()
+                
+                # Get QImage
+                pixmap = item.pixmap()
+                image = pixmap.toImage()
+                
+                # Get dimensions
+                width = pixmap.width()
+                height = pixmap.height()
+                
+                images.append({
+                    "image": image,
+                    "x": pos.x(),
+                    "y": pos.y(),
+                    "width": width,
+                    "height": height
+                })
+        return images
+

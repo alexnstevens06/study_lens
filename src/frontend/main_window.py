@@ -73,6 +73,11 @@ class MainWindow(QMainWindow):
                 for action in actions:
                     self.toolbar.addAction(action)
 
+    def closeEvent(self, event):
+        if self.pdf_viewer.doc:
+            self.pdf_viewer.save_annotations(save_to_disk=True)
+        event.accept()
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()

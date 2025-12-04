@@ -10,6 +10,7 @@
         "src/frontend/gestures/pinch_gesture.py": true,
         "src/frontend/gestures/swipe_gesture.py": true,
         "src/frontend/gestures/pen_gesture.py": true,
-        "src/frontend/gestures/pan_gesture.py": true
+        "src/frontend/gestures/pan_gesture.py": true,
+        "src/frontend/gestures/clipboard_handler.py": true
     }
 }
