@@ -1,7 +1,11 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QToolBar, QFileDialog
-from PyQt6.QtGui import QAction
+import os
+import importlib
+import pkgutil
+import inspect
+from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QToolBar
 from src.frontend.pdf_viewer import PDFViewer
+from src.modules.base_module import BaseModule
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -15,53 +19,60 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central_widget)
 
         # Toolbar
-        toolbar = QToolBar()
-        self.addToolBar(toolbar)
-
-        # Open Action
-        open_action = QAction("Open PDF", self)
-        open_action.triggered.connect(self.open_pdf)
-        toolbar.addAction(open_action)
-
-        # New Note Action
-        new_note_action = QAction("New Note", self)
-        new_note_action.triggered.connect(self.new_note)
-        toolbar.addAction(new_note_action)
-
-        # Navigation Actions
-        prev_action = QAction("Previous", self)
-        prev_action.triggered.connect(self.prev_page)
-        toolbar.addAction(prev_action)
-
-        next_action = QAction("Next", self)
-        next_action.triggered.connect(self.next_page)
-        toolbar.addAction(next_action)
-
-        # Close Action
-        close_action = QAction("Close", self)
-        close_action.triggered.connect(self.close_pdf)
-        toolbar.addAction(close_action)
+        self.toolbar = QToolBar()
+        self.addToolBar(self.toolbar)
 
         # PDF Viewer
         self.pdf_viewer = PDFViewer()
         layout.addWidget(self.pdf_viewer)
 
-    def open_pdf(self) -> None:
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
-        if file_name:
-            self.pdf_viewer.load_document(file_name)
+        # Load Modules
+        self.modules = []
+        self.load_modules()
 
-    def new_note(self) -> None:
-        self.pdf_viewer.create_blank_document()
+    def load_modules(self):
+        # Path to modules directory
+        # src/frontend/main_window.py -> src/modules
+        modules_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'modules')
+        
+        loaded_modules = []
 
-    def close_pdf(self) -> None:
-        self.pdf_viewer.close_document()
+        # Discover and load modules
+        for _, name, _ in pkgutil.iter_modules([modules_path]):
+            if name == 'base_module':
+                continue
+                
+            try:
+                module = importlib.import_module(f'src.modules.{name}')
+                
+                # Find BaseModule subclasses
+                for attribute_name in dir(module):
+                    attribute = getattr(module, attribute_name)
+                    
+                    if (inspect.isclass(attribute) and 
+                        issubclass(attribute, BaseModule) and 
+                        attribute is not BaseModule):
+                        
+                        # Instantiate and initialize
+                        instance = attribute(self)
+                        instance.init_ui()
+                        loaded_modules.append(instance)
+                                
+            except Exception as e:
+                print(f"Failed to load module {name}: {e}")
+        
+        # Sort by priority
+        loaded_modules.sort(key=lambda x: x.priority)
+        
+        # Store in instance variable to prevent garbage collection
+        self.modules = loaded_modules
 
-    def prev_page(self) -> None:
-        self.pdf_viewer.prev_page()
-
-    def next_page(self) -> None:
-        self.pdf_viewer.next_page()
+        # Add actions to toolbar
+        for instance in self.modules:
+            actions = instance.get_actions()
+            if actions:
+                for action in actions:
+                    self.toolbar.addAction(action)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

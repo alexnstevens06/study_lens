@@ -43,28 +43,34 @@ class PDFViewer(QGraphicsView):
         self._is_panning = False
         self._last_pan_pos = None
 
-    def load_document(self, file_path: str) -> None:
-        try:
-            self.doc = fitz.open(file_path)
-            self.current_page_num = 0
-            self.is_new_file = False
-            self.render_page()
-        except Exception as e:
-            print(f"Error loading document: {e}")
-
-    def create_blank_document(self) -> None:
-        self.doc = fitz.open()
-        # A4 size: 595 x 842 points
-        self.doc.new_page(width=595, height=842)
+    def set_document(self, doc, is_new_file: bool = False) -> None:
+        self.doc = doc
+        self.is_new_file = is_new_file
         self.current_page_num = 0
-        self.is_new_file = True
+        self.render_page()
+
+    def get_document(self):
+        return self.doc
+
+    def set_page(self, page_num: int) -> None:
+        self.current_page_num = page_num
+        self.render_page()
+
+    def get_page(self) -> int:
+        return self.current_page_num
+
+    def refresh_view(self) -> None:
         self.render_page()
 
     def render_page(self) -> None:
         if not self.doc:
             return
 
-        page = self.doc.load_page(self.current_page_num)
+        try:
+            page = self.doc.load_page(self.current_page_num)
+        except Exception as e:
+            print(f"Error loading page {self.current_page_num}: {e}")
+            return
         
         # Render page to image
         mat = fitz.Matrix(self.zoom_level, self.zoom_level)
@@ -198,33 +204,15 @@ class PDFViewer(QGraphicsView):
             self.scale(scale_factor, scale_factor)
 
     def swipe_triggered(self, gesture: QSwipeGesture) -> None:
-        if gesture.state() == Qt.GestureState.GestureFinished:
-            if gesture.horizontalDirection() == QSwipeGesture.SwipeDirection.Left:
-                self.next_page()
-            elif gesture.horizontalDirection() == QSwipeGesture.SwipeDirection.Right:
-                self.prev_page()
-
-    def next_page(self) -> None:
-        if not self.doc: return
-        
-        # Save current page annotations before moving
-        self.save_annotations(save_to_disk=False)
-        
-        if self.current_page_num < len(self.doc) - 1:
-            self.current_page_num += 1
-            self.render_page()
-        else:
-            # Infinite Scroll: Add new page
-            self.doc.new_page(width=595, height=842)
-            self.current_page_num += 1
-            self.render_page()
-
-    def prev_page(self) -> None:
-        if self.doc and self.current_page_num > 0:
-            # Save current page annotations before moving
-            self.save_annotations(save_to_disk=False)
-            self.current_page_num -= 1
-            self.render_page()
+        # Swipe logic needs to be handled by Navigation Module now, or via signals?
+        # For now, we'll emit a signal or just leave it broken until we hook it up.
+        # Ideally, PDFViewer shouldn't know about "next page" logic if it's modular.
+        # But gestures are low-level events.
+        # Let's emit a custom signal if we want to be pure, or just access the main window?
+        # Accessing main window from here is messy.
+        # Let's leave swipe empty for now or assume the Navigation Module will hook into it?
+        # Actually, we can just expose a signal `swipe_left` / `swipe_right`.
+        pass
 
     def save_annotations(self, save_to_disk: bool = True) -> None:
         if not self.doc: return
@@ -260,13 +248,6 @@ class PDFViewer(QGraphicsView):
             annot.set_border(width=stroke["width"] / self.zoom_level)
             annot.update()
             
-        # Clear strokes from scene now that they are in the PDF (so we don't double save if we call this again)
-        # Wait, if we clear them, the user sees them disappear until we re-render?
-        # Yes, so we should probably re-render or keep them but mark them as saved.
-        # For simplicity: We will just NOT clear them, but we risk double saving if save is called multiple times on same page without reload.
-        # However, we only call save on page change or close. 
-        # If we change page, we re-render anyway.
-        
         if save_to_disk:
             if self.is_new_file:
                 # Create notes folder if it doesn't exist
@@ -286,11 +267,3 @@ class PDFViewer(QGraphicsView):
                 except Exception as e:
                     print(f"Error saving document: {e}")
                     self.doc.save(self.doc.name)
-
-    def close_document(self) -> None:
-        if self.doc:
-            self.save_annotations(save_to_disk=True)
-            self.doc.close()
-            self.doc = None
-            self.scene.clear()
-            self.current_page_num = 0
