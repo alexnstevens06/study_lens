@@ -2,7 +2,11 @@ import fitz  # PyMuPDF
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPinchGesture, QSwipeGesture, QScroller, QScrollerProperties
 from PyQt6.QtGui import QPixmap, QImage, QInputDevice, QPointingDevice, QColor
 from PyQt6.QtCore import Qt, QEvent
+from src.frontend.gestures.base_gesture import BaseGesture
+from src.config_manager import ConfigManager
+from src.loader_utils import load_classes_from_path
 from src.frontend.ink_canvas import InkCanvas
+from src.frontend.gestures.gesture_manager import GestureManager
 import os
 from datetime import datetime
 
@@ -18,9 +22,21 @@ class PDFViewer(QGraphicsView):
         # Optimization: Render at a reasonable scale
         self.zoom_level = 2.0  # 2.0 = 144 DPI (High Quality)
         
-        # Enable Gestures
-        self.grabGesture(Qt.GestureType.PinchGesture)
-        self.grabGesture(Qt.GestureType.SwipeGesture)
+        # Enable Gestures via Manager
+        self.gesture_manager = GestureManager(self)
+        self.config_manager = ConfigManager()
+        
+        gestures_dict = self.config_manager.get_gestures()
+        for file_path, enabled in gestures_dict.items():
+            if not enabled:
+                continue
+                
+            gesture_classes = load_classes_from_path(file_path, BaseGesture)
+            for gesture_class in gesture_classes:
+                try:
+                    self.gesture_manager.register_gesture(gesture_class())
+                except Exception as e:
+                    print(f"Failed to register gesture from {file_path}: {e}")
         
         # Enable Kinetic Scrolling (Touch to Pan)
         QScroller.grabGesture(self.viewport(), QScroller.ScrollerGestureType.TouchGesture)
@@ -39,9 +55,6 @@ class PDFViewer(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
-        # Panning State
-        self._is_panning = False
-        self._last_pan_pos = None
 
     def set_document(self, doc, is_new_file: bool = False) -> None:
         self.doc = doc
@@ -89,130 +102,28 @@ class PDFViewer(QGraphicsView):
 
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Gesture:
-            return self.gesture_event(event)
+            return self.gesture_manager.dispatch_event(event)
         return super().event(event)
 
     def viewportEvent(self, event: QEvent) -> bool:
-        if event.type() in [QEvent.Type.TabletPress, QEvent.Type.TabletMove, QEvent.Type.TabletRelease]:
-            # Handle Tablet Events
-            return self.handle_tablet_event(event)
+        if self.gesture_manager.dispatch_event(event):
+            return True
         return super().viewportEvent(event)
 
-    def handle_tablet_event(self, event: QEvent) -> bool:
-        pos = self.mapToScene(event.position().toPoint())
-        pressure = event.pressure()
-        pointer_type = event.pointerType()
-        buttons = event.buttons()
-        
-        # Determine Tool (Only update if not currently drawing to prevent switching mid-stroke)
-        # This ensures that on TabletRelease (when buttons are released), we don't revert to pencil
-        if not self.scene.is_drawing:
-            if pointer_type == QPointingDevice.PointerType.Eraser:
-                self.scene.tool = "eraser"
-                # print("Pointer Type: Eraser")
-
-            else:
-                self.scene.tool = "pencil"
-
-        # Dispatch to Scene
-        if event.type() == QEvent.Type.TabletPress:
-            print("[DEBUG] TabletPress received")
-            self.scene.is_drawing = True
-            self.scene.start_stroke(pos, pressure)
-            event.accept()
-            return True
-            
-        elif event.type() == QEvent.Type.TabletMove:
-            if self.scene.is_drawing:
-                self.scene.move_stroke(pos, pressure)
-                event.accept()
-                return True
-                
-        elif event.type() == QEvent.Type.TabletRelease:
-            print("[DEBUG] TabletRelease received")
-            if self.scene.is_drawing:
-                self.scene.end_stroke(pos, pressure)
-                self.scene.is_drawing = False
-            event.accept()
-            return True
-            
-        return False
-
-    # Manual Panning for Touch/Mouse (ignores Pen which sends TabletEvents)
     def mousePressEvent(self, event: QEvent) -> None:
-        # Ignore Stylus input (let it pass to Scene for drawing)
-        if event.device().type() == QInputDevice.DeviceType.Stylus:
-            super().mousePressEvent(event)
+        if self.gesture_manager.dispatch_event(event):
             return
-
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._is_panning = True
-            self._last_pan_pos = event.pos()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            event.accept()
-        else:
-            super().mousePressEvent(event)
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QEvent) -> None:
-        # Ignore Stylus
-        if event.device().type() == QInputDevice.DeviceType.Stylus:
-            super().mouseMoveEvent(event)
+        if self.gesture_manager.dispatch_event(event):
             return
-
-        if self._is_panning and self._last_pan_pos:
-            delta = event.pos() - self._last_pan_pos
-            self._last_pan_pos = event.pos()
-            
-            # Scroll the view
-            h_bar = self.horizontalScrollBar()
-            v_bar = self.verticalScrollBar()
-            h_bar.setValue(h_bar.value() - delta.x())
-            v_bar.setValue(v_bar.value() - delta.y())
-            event.accept()
-        else:
-            super().mouseMoveEvent(event)
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QEvent) -> None:
-        # Ignore Stylus
-        if event.device().type() == QInputDevice.DeviceType.Stylus:
-            super().mouseReleaseEvent(event)
+        if self.gesture_manager.dispatch_event(event):
             return
-
-        if self._is_panning:
-            self._is_panning = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
-
-    def gesture_event(self, event: QEvent) -> bool:
-        pinch = event.gesture(Qt.GestureType.PinchGesture)
-        swipe = event.gesture(Qt.GestureType.SwipeGesture)
-        
-        if pinch:
-            self.pinch_triggered(pinch)
-        
-        if swipe:
-            self.swipe_triggered(swipe)
-            
-        return True
-
-    def pinch_triggered(self, gesture: QPinchGesture) -> None:
-        change_flags = gesture.changeFlags()
-        if change_flags & QPinchGesture.ChangeFlag.ScaleFactorChanged:
-            scale_factor = gesture.scaleFactor()
-            self.scale(scale_factor, scale_factor)
-
-    def swipe_triggered(self, gesture: QSwipeGesture) -> None:
-        # Swipe logic needs to be handled by Navigation Module now, or via signals?
-        # For now, we'll emit a signal or just leave it broken until we hook it up.
-        # Ideally, PDFViewer shouldn't know about "next page" logic if it's modular.
-        # But gestures are low-level events.
-        # Let's emit a custom signal if we want to be pure, or just access the main window?
-        # Accessing main window from here is messy.
-        # Let's leave swipe empty for now or assume the Navigation Module will hook into it?
-        # Actually, we can just expose a signal `swipe_left` / `swipe_right`.
-        pass
+        super().mouseReleaseEvent(event)
 
     def save_annotations(self, save_to_disk: bool = True) -> None:
         if not self.doc: return

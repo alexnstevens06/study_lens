@@ -1,0 +1,15 @@
+{
+    "modules": {
+        "src/modules/open_pdf_module.py": true,
+        "src/modules/close_pdf_module.py": true,
+        "src/modules/navigation_module.py": true,
+        "src/modules/new_note_module.py": true,
+        "src/modules/pen_settings_module.py": true
+    },
+    "gestures": {
+        "src/frontend/gestures/pinch_gesture.py": true,
+        "src/frontend/gestures/swipe_gesture.py": true,
+        "src/frontend/gestures/pen_gesture.py": true,
+        "src/frontend/gestures/pan_gesture.py": true
+    }
+}

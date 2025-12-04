@@ -6,6 +6,9 @@ import inspect
 from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QToolBar
 from src.frontend.pdf_viewer import PDFViewer
 from src.modules.base_module import BaseModule
+from src.config_manager import ConfigManager
+from src.loader_utils import load_classes_from_path
+import os
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -27,6 +30,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.pdf_viewer)
 
         # Load Modules
+        self.config_manager = ConfigManager()
         self.modules = []
         self.load_modules()
 
@@ -38,28 +42,23 @@ class MainWindow(QMainWindow):
         loaded_modules = []
 
         # Discover and load modules
-        for _, name, _ in pkgutil.iter_modules([modules_path]):
-            if name == 'base_module':
+        modules_dict = self.config_manager.get_modules()
+        
+        for file_path, enabled in modules_dict.items():
+            if not enabled:
                 continue
                 
-            try:
-                module = importlib.import_module(f'src.modules.{name}')
-                
-                # Find BaseModule subclasses
-                for attribute_name in dir(module):
-                    attribute = getattr(module, attribute_name)
-                    
-                    if (inspect.isclass(attribute) and 
-                        issubclass(attribute, BaseModule) and 
-                        attribute is not BaseModule):
-                        
-                        # Instantiate and initialize
-                        instance = attribute(self)
-                        instance.init_ui()
-                        loaded_modules.append(instance)
-                                
-            except Exception as e:
-                print(f"Failed to load module {name}: {e}")
+            # Load classes from file
+            module_classes = load_classes_from_path(file_path, BaseModule)
+            
+            for module_class in module_classes:
+                try:
+                    # Instantiate and initialize
+                    instance = module_class(self)
+                    instance.init_ui()
+                    loaded_modules.append(instance)
+                except Exception as e:
+                    print(f"Failed to instantiate module from {file_path}: {e}")
         
         # Sort by priority
         loaded_modules.sort(key=lambda x: x.priority)
