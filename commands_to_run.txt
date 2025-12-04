@@ -1,0 +1,3 @@
+uvicorn src.backend.main:app --reload
+
+python -m src.frontend.main_window
