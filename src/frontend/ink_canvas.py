@@ -20,17 +20,27 @@ class InkCanvas(QGraphicsScene):
         self.original_pens = {}
         self.is_moving_selection = False
         self.move_last_pos = None
+        self.deselected_items_in_stroke = set()
 
     def start_stroke(self, pos: QPointF, pressure: float) -> None:
-        # Check for selection interaction
-        if self.selection_box and self.selection_box.contains(pos):
-            self.is_moving_selection = True
-            self.move_last_pos = pos
+        # Eraser Logic (Deselect or Erase)
+        if self.tool == "eraser":
+            self.deselected_items_in_stroke.clear()
+            self.process_eraser_at(pos)
+            self.is_drawing = True
             return
 
-        # Clear selection if clicking outside
-        if self.selected_items_group:
-            self.clear_selection()
+        # Pen Logic
+        if self.tool == "pencil":
+            # Check for selection interaction (Move)
+            if self.selection_box and self.selection_box.contains(pos):
+                self.is_moving_selection = True
+                self.move_last_pos = pos
+                return
+            
+            # Clear selection if clicking outside
+            if self.selected_items_group:
+                self.clear_selection()
 
         self.is_drawing = True
         if self.tool == "pencil":
@@ -65,7 +75,7 @@ class InkCanvas(QGraphicsScene):
             self.current_item.setPath(self.current_path)
             
         elif self.tool == "eraser":
-            self.erase_at(pos)
+            self.process_eraser_at(pos)
 
     def end_stroke(self, pos: QPointF, pressure: float) -> None:
         if self.is_moving_selection:
@@ -224,4 +234,50 @@ class InkCanvas(QGraphicsScene):
             
         item.setOpacity(opacity - 0.1)
         QTimer.singleShot(30, lambda: self.fade_out_and_remove(item))
+
+    def process_eraser_at(self, pos: QPointF) -> None:
+        # Create a small hit rect
+        hit_rect = QRectF(pos.x() - 2, pos.y() - 2, 4, 4)
+        items = self.items(hit_rect)
+        
+        for item in items:
+            if isinstance(item, QGraphicsPathItem):
+                # If item is selected, deselect it
+                if item in self.selected_items_group:
+                    # Restore original pen
+                    if item in self.original_pens:
+                        item.setPen(self.original_pens[item])
+                        del self.original_pens[item]
+                    
+                    self.selected_items_group.remove(item)
+                    item.setSelected(False)
+                    self.deselected_items_in_stroke.add(item)
+                    
+                    # Update Selection Box
+                    if not self.selected_items_group:
+                        self.clear_selection()
+                    else:
+                        # Recalculate bounds
+                        min_x, min_y = float('inf'), float('inf')
+                        max_x, max_y = float('-inf'), float('-inf')
+                        
+                        for sel_item in self.selected_items_group:
+                            rect = sel_item.sceneBoundingRect()
+                            min_x = min(min_x, rect.left())
+                            min_y = min(min_y, rect.top())
+                            max_x = max(max_x, rect.right())
+                            max_y = max(max_y, rect.bottom())
+                            
+                        if self.selection_box:
+                            rect = QRectF(min_x - 5, min_y - 5, (max_x - min_x) + 10, (max_y - min_y) + 10)
+                            self.selection_box.setRect(rect)
+                
+                # If item is NOT selected (and not the selection box itself), erase it
+                elif item != self.selection_box:
+                     if item not in self.deselected_items_in_stroke:
+                         self.removeItem(item)
+
+    def erase_at(self, pos: QPointF) -> None:
+        # Kept for compatibility if needed, but process_eraser_at handles both
+        self.process_eraser_at(pos)
 
