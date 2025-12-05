@@ -28,16 +28,20 @@ class PenGesture(BaseGesture):
         pressure = event.pressure()
         pointer_type = event.pointerType()
         
-        # Determine Tool (Only update if not currently drawing to prevent switching mid-stroke)
-        if not scene.is_drawing:
-            if pointer_type == QPointingDevice.PointerType.Eraser:
-                scene.tool = "eraser"
-            else:
-                scene.tool = "pencil"
-
         # Dispatch to Scene
         if event.type() == QEvent.Type.TabletPress:
-            # print("[DEBUG] TabletPress received")
+            print(pointer_type)
+            
+            # Determine Tool (Only update on press to prevent switching mid-stroke)
+            if not scene.is_drawing:
+                if pointer_type == QPointingDevice.PointerType.Eraser:
+                    scene.tool = "eraser"
+                elif pointer_type == QPointingDevice.PointerType.Pen:
+                    if event.button() == Qt.MouseButton.RightButton or (event.buttons() & Qt.MouseButton.RightButton):
+                        scene.tool = "lasso"
+                    else:
+                        scene.tool = "pencil"
+
             scene.is_drawing = True
             scene.start_stroke(pos, pressure)
             event.accept()
@@ -50,7 +54,8 @@ class PenGesture(BaseGesture):
                 return True
                 
         elif event.type() == QEvent.Type.TabletRelease:
-            # print("[DEBUG] TabletRelease received")
+            if pointer_type == QPointingDevice.PointerType.Eraser:
+                print(f"TabletRelease (Eraser): Button={event.button()}, Buttons={event.buttons()}, Modifiers={event.modifiers()}")
             if scene.is_drawing:
                 scene.end_stroke(pos, pressure)
                 scene.is_drawing = False
