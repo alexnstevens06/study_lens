@@ -1,7 +1,7 @@
 import fitz  # PyMuPDF
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPinchGesture, QSwipeGesture, QScroller, QScrollerProperties
 from PyQt6.QtGui import QPixmap, QImage, QInputDevice, QPointingDevice, QColor
-from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from src.frontend.gestures.base_gesture import BaseGesture
 from src.frontend.config_manager import ConfigManager
 from src.frontend.loader_utils import load_classes_from_path
@@ -11,6 +11,9 @@ import os
 from datetime import datetime
 
 class PDFViewer(QGraphicsView):
+    document_changed = pyqtSignal()
+    page_changed = pyqtSignal(int)
+
     def __init__(self):
         super().__init__()
         self.scene = InkCanvas(self)
@@ -61,6 +64,7 @@ class PDFViewer(QGraphicsView):
         self.is_new_file = is_new_file
         self.current_page_num = 0
         self.render_page()
+        self.document_changed.emit()
 
     def get_document(self):
         return self.doc
@@ -68,12 +72,30 @@ class PDFViewer(QGraphicsView):
     def set_page(self, page_num: int) -> None:
         self.current_page_num = page_num
         self.render_page()
+        self.page_changed.emit(page_num)
 
     def get_page(self) -> int:
         return self.current_page_num
 
     def refresh_view(self) -> None:
         self.render_page()
+
+    def add_new_page(self) -> None:
+        if not self.doc:
+            return
+            
+        # Get dimensions of the last page to match
+        width, height = 595, 842 # Default A4
+        if self.doc.page_count > 0:
+            last_page = self.doc.load_page(self.doc.page_count - 1)
+            rect = last_page.rect
+            width, height = rect.width, rect.height
+            
+        self.doc.new_page(width=width, height=height)
+        self.current_page_num = self.doc.page_count - 1
+        self.render_page()
+        self.page_changed.emit(self.current_page_num)
+        self.document_changed.emit() # Page count changed, so doc changed too
 
     def render_page(self) -> None:
         if not self.doc:

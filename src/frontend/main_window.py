@@ -71,7 +71,10 @@ class MainWindow(QMainWindow):
             actions = instance.get_actions()
             if actions:
                 for action in actions:
-                    self.toolbar.addAction(action)
+                    if isinstance(action, QWidget):
+                        self.toolbar.addWidget(action)
+                    else:
+                        self.toolbar.addAction(action)
 
     def closeEvent(self, event):
         if self.pdf_viewer.doc:
