@@ -4,7 +4,8 @@
         "src/frontend/modules/close_pdf_module.py": true,
         "src/frontend/modules/navigation_module.py": true,
         "src/frontend/modules/new_note_module.py": true,
-        "src/frontend/modules/pen_settings_module.py": true
+        "src/frontend/modules/pen_settings_module.py": true,
+        "src/frontend/modules/undo_redo_module.py": true
     },
     "gestures": {
         "src/frontend/gestures/pinch_gesture.py": true,

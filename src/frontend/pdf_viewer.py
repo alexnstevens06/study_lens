@@ -7,6 +7,8 @@ from src.frontend.config_manager import ConfigManager
 from src.frontend.loader_utils import load_classes_from_path
 from src.frontend.ink_canvas import InkCanvas
 from src.frontend.gestures.gesture_manager import GestureManager
+from src.frontend.undo_manager import UndoManager, AddStrokeCommand, RemoveStrokeCommand, AddImageCommand, MoveItemsCommand
+from PyQt6.QtGui import QKeySequence, QShortcut
 import os
 from datetime import datetime
 
@@ -21,12 +23,18 @@ class PDFViewer(QGraphicsView):
         self.doc = None
         self.current_page_num = 0
         self.is_new_file = False
+        self.page_data_cache = {} # Cache for strokes and images: {page_num: {"strokes": [], "images": []}}
         
         # Optimization: Render at a reasonable scale
         self.zoom_level = 2.0  # 2.0 = 144 DPI (High Quality)
         
         # Enable Gestures via Manager
         self.gesture_manager = GestureManager(self)
+        
+        # Undo Manager
+        self.undo_manager = UndoManager(self)
+        self.connect_undo_signals()
+        
         self.config_manager = ConfigManager()
         
         gestures_dict = self.config_manager.get_gestures()
@@ -63,15 +71,61 @@ class PDFViewer(QGraphicsView):
         self.doc = doc
         self.is_new_file = is_new_file
         self.current_page_num = 0
+        self.page_data_cache = {} # Reset cache on new document
+        self.render_page()
         self.render_page()
         self.document_changed.emit()
+
+    def connect_undo_signals(self):
+        self.scene.strokeCreated.connect(self.on_stroke_created)
+        self.scene.strokeErased.connect(self.on_stroke_erased)
+        self.scene.itemsMoved.connect(self.on_items_moved)
+        self.scene.imageAdded.connect(self.on_image_added)
+
+    def on_stroke_created(self, data):
+        cmd = AddStrokeCommand(self.scene, data)
+        self.undo_manager.push(cmd)
+
+    def on_stroke_erased(self, data):
+        cmd = RemoveStrokeCommand(self.scene, data)
+        self.undo_manager.push(cmd)
+
+    def on_items_moved(self, data):
+        cmd = MoveItemsCommand(self.scene, data)
+        self.undo_manager.push(cmd)
+
+    def on_image_added(self, data):
+        cmd = AddImageCommand(self.scene, data)
+        self.undo_manager.push(cmd)
+    
+    def keyPressEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if event.key() == Qt.Key.Key_Z:
+                 self.undo_manager.undo()
+                 return
+            elif event.key() == Qt.Key.Key_Y:
+                 self.undo_manager.redo()
+                 return
+        super().keyPressEvent(event)
 
     def get_document(self):
         return self.doc
 
     def set_page(self, page_num: int) -> None:
+        # Save current page data to cache
+        if self.doc:
+            strokes = self.scene.get_strokes()
+            images = self.scene.get_images()
+            print(f"[DEBUG] Saving cache for page {self.current_page_num}: {len(strokes)} strokes, {len(images)} images")
+            self.page_data_cache[self.current_page_num] = {
+                "strokes": strokes,
+                "images": images
+            }
+            
+        self.current_page_num = page_num
         self.current_page_num = page_num
         self.render_page()
+        self.undo_manager.clear() # Clear undo history on page change
         self.page_changed.emit(page_num)
 
     def get_page(self) -> int:
@@ -83,6 +137,15 @@ class PDFViewer(QGraphicsView):
     def add_new_page(self) -> None:
         if not self.doc:
             return
+            
+        # Save current page data to cache
+        strokes = self.scene.get_strokes()
+        images = self.scene.get_images()
+        print(f"[DEBUG] Saving cache for page {self.current_page_num} (before new page): {len(strokes)} strokes, {len(images)} images")
+        self.page_data_cache[self.current_page_num] = {
+            "strokes": strokes,
+            "images": images
+        }
             
         # Get dimensions of the last page to match
         width, height = 595, 842 # Default A4
@@ -122,6 +185,17 @@ class PDFViewer(QGraphicsView):
         bg_item = self.scene.addPixmap(pixmap)
         bg_item.setData(Qt.ItemDataRole.UserRole, "background")
         self.setSceneRect(0, 0, pix.width, pix.height)
+        
+        # Restore strokes and images from cache if available
+        if self.current_page_num in self.page_data_cache:
+            data = self.page_data_cache[self.current_page_num]
+            strokes = data.get("strokes", [])
+            images = data.get("images", [])
+            print(f"[DEBUG] Restoring cache for page {self.current_page_num}: {len(strokes)} strokes, {len(images)} images")
+            self.scene.load_strokes(strokes)
+            self.scene.load_images(images)
+        else:
+            print(f"[DEBUG] No cache found for page {self.current_page_num}")
 
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Gesture:
@@ -151,67 +225,82 @@ class PDFViewer(QGraphicsView):
     def save_annotations(self, save_to_disk: bool = True) -> None:
         if not self.doc: return
         
-        page = self.doc.load_page(self.current_page_num)
-        strokes = self.scene.get_strokes()
+        # Save current page to cache first
+        self.page_data_cache[self.current_page_num] = {
+            "strokes": self.scene.get_strokes(),
+            "images": self.scene.get_images()
+        }
         
-        for stroke in strokes:
-            points = stroke["points"]
-            if len(points) < 2: continue
-            
-            # Convert scene points to PDF coordinates
-            pdf_points = []
-            for x, y in points:
-                pdf_points.append((x / self.zoom_level, y / self.zoom_level))
-                
-            annot = page.add_ink_annot([pdf_points])
-            
-            # Parse color
+        # Iterate through all cached pages
+        for page_num, data in self.page_data_cache.items():
             try:
-                qcolor = QColor(stroke["color"])
-                if not qcolor.isValid():
-                    print(f"[ERROR] Invalid color: {stroke['color']}")
-                    rgb = (0, 0, 0) # Default to black
-                else:
-                    rgb = (qcolor.redF(), qcolor.greenF(), qcolor.blueF())
-                
-                annot.set_colors(stroke=rgb)
+                page = self.doc.load_page(page_num)
             except Exception as e:
-                print(f"[ERROR] Failed to set color: {e}, stroke color data: {stroke.get('color')}")
-                annot.set_colors(stroke=(0, 0, 0)) # Fallback
+                print(f"[ERROR] Failed to load page {page_num} for saving: {e}")
+                continue
                 
-            annot.set_border(width=stroke["width"] / self.zoom_level)
-            annot.update()
+            strokes = data.get("strokes", [])
+            images = data.get("images", [])
             
-        # Save Images
-        images = self.scene.get_images()
-        print(f"[DEBUG] Found {len(images)} images to save.")
-        for img_data in images:
-            try:
-                # Convert QImage to bytes (PNG format)
-                qimage = img_data["image"]
-                from PyQt6.QtCore import QBuffer, QIODevice
-                ba = QBuffer()
-                ba.open(QIODevice.OpenModeFlag.ReadWrite)
-                qimage.save(ba, "PNG")
-                image_bytes = ba.data().data()
+            # Process Strokes
+            # Process Strokes
+            for stroke in strokes:
+                points = stroke["points"]
+                if len(points) < 2: continue
                 
-                # Calculate PDF coordinates
-                # Scene coordinates are zoomed, so divide by zoom_level
-                x = img_data["x"] / self.zoom_level
-                y = img_data["y"] / self.zoom_level
-                w = img_data["width"] / self.zoom_level
-                h = img_data["height"] / self.zoom_level
+                # Convert scene points to PDF coordinates
+                pdf_points = []
+                for x, y in points:
+                    pdf_points.append((x / self.zoom_level, y / self.zoom_level))
+                    
+                annot = page.add_ink_annot([pdf_points])
                 
-                print(f"[DEBUG] Saving image at PDF coords: {x}, {y}, {w}, {h}")
-                
-                # Create rectangle
-                rect = fitz.Rect(x, y, x + w, y + h)
-                
-                # Insert image
-                page.insert_image(rect, stream=image_bytes)
-                print("[DEBUG] Image inserted successfully.")
-            except Exception as e:
-                print(f"[ERROR] Error saving image: {e}")
+                # Parse color
+                try:
+                    qcolor = QColor(stroke["color"])
+                    if not qcolor.isValid():
+                        print(f"[ERROR] Invalid color: {stroke['color']}")
+                        rgb = (0, 0, 0) # Default to black
+                    else:
+                        rgb = (qcolor.redF(), qcolor.greenF(), qcolor.blueF())
+                    
+                    annot.set_colors(stroke=rgb)
+                except Exception as e:
+                    print(f"[ERROR] Failed to set color: {e}, stroke color data: {stroke.get('color')}")
+                    annot.set_colors(stroke=(0, 0, 0)) # Fallback
+                    
+                annot.set_border(width=stroke["width"] / self.zoom_level)
+                annot.update()
+            
+            # Process Images
+            print(f"[DEBUG] Found {len(images)} images to save on page {page_num}.")
+            for img_data in images:
+                try:
+                    # Convert QImage to bytes (PNG format)
+                    qimage = img_data["image"]
+                    from PyQt6.QtCore import QBuffer, QIODevice
+                    ba = QBuffer()
+                    ba.open(QIODevice.OpenModeFlag.ReadWrite)
+                    qimage.save(ba, "PNG")
+                    image_bytes = ba.data().data()
+                    
+                    # Calculate PDF coordinates
+                    # Scene coordinates are zoomed, so divide by zoom_level
+                    x = img_data["x"] / self.zoom_level
+                    y = img_data["y"] / self.zoom_level
+                    w = img_data["width"] / self.zoom_level
+                    h = img_data["height"] / self.zoom_level
+                    
+                    print(f"[DEBUG] Saving image at PDF coords: {x}, {y}, {w}, {h}")
+                    
+                    # Create rectangle
+                    rect = fitz.Rect(x, y, x + w, y + h)
+                    
+                    # Insert image
+                    page.insert_image(rect, stream=image_bytes)
+                    print("[DEBUG] Image inserted successfully.")
+                except Exception as e:
+                    print(f"[ERROR] Error saving image: {e}")
             
         if save_to_disk:
             print("[DEBUG] Saving document to disk...")

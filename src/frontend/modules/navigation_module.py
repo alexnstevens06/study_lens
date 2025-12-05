@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLineEdit, QLabel
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLineEdit, QLabel, QSizePolicy
 from PyQt6.QtCore import Qt
 from .base_module import BaseModule
 
@@ -18,7 +18,11 @@ class NavigationModule(BaseModule):
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
-
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        
+        # Set Fixed Size Policy to prevent expansion
+        container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        
         # Buttons
         btn_prev_5 = QPushButton("<<")
         btn_prev = QPushButton("<")
@@ -37,6 +41,8 @@ class NavigationModule(BaseModule):
         # Label
         self.total_label = QLabel("/ 0")
         self.total_label.setContentsMargins(5, 0, 5, 0)
+        # Prevent label from expanding
+        self.total_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
 
         # Add to layout
         layout.addWidget(btn_prev_5)

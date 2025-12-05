@@ -19,6 +19,11 @@ class ColorBar(QWidget):
         self._update_color()
         self.update()
 
+    def set_saturation(self, saturation: float):
+        self.saturation = max(0.0, min(1.0, saturation))
+        self._update_color()
+        self.update()
+
     def _update_color(self):
         self.current_color = QColor.fromHsvF(self.hue, self.saturation, self.value)
         self.colorChanged.emit(self.current_color)
@@ -71,7 +76,7 @@ class PenSettingsPopup(QWidget):
     def __init__(self, initial_color: QColor, initial_size: int, parent=None):
         super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.setWindowTitle("Pen Settings")
-        self.setFixedSize(300, 350) 
+        self.setFixedSize(300, 450) 
         
         layout = QVBoxLayout(self)
         
@@ -93,8 +98,24 @@ class PenSettingsPopup(QWidget):
         self.bright_slider.setValue(int(v * 100))
         self.bright_slider.valueChanged.connect(self._on_brightness_changed)
         layout.addWidget(self.bright_slider)
+
+        # 3. Saturation Slider
+        layout.addWidget(QLabel("Saturation (Wash out)"))
+        self.sat_slider = QSlider(Qt.Orientation.Horizontal)
+        self.sat_slider.setRange(0, 100)
+        self.sat_slider.setValue(int(s * 100))
+        self.sat_slider.valueChanged.connect(self._on_saturation_changed)
+        layout.addWidget(self.sat_slider)
+
+        # 4. Intensity Slider (Alpha)
+        layout.addWidget(QLabel("Intensity (Opacity)"))
+        self.intensity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.intensity_slider.setRange(0, 255)
+        self.intensity_slider.setValue(initial_color.alpha())
+        self.intensity_slider.valueChanged.connect(self._on_intensity_changed)
+        layout.addWidget(self.intensity_slider)
         
-        # 3. Size Slider
+        # 5. Size Slider
         layout.addWidget(QLabel("Size"))
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
         self.size_slider.setRange(1, 50)
@@ -102,7 +123,7 @@ class PenSettingsPopup(QWidget):
         self.size_slider.valueChanged.connect(self._update_preview)
         layout.addWidget(self.size_slider)
         
-        # 4. Preview
+        # 6. Preview
         layout.addWidget(QLabel("Preview"))
         self.preview_frame = QFrame()
         self.preview_frame.setFixedSize(280, 60)
@@ -123,11 +144,21 @@ class PenSettingsPopup(QWidget):
     def _on_brightness_changed(self, value):
         self.color_bar.set_value(value / 100.0)
 
+    def _on_saturation_changed(self, value):
+        self.color_bar.set_saturation(value / 100.0)
+
+    def _on_intensity_changed(self, value):
+        self._update_preview()
+
     def _on_color_changed(self, color):
         self._update_preview()
 
     def _update_preview(self):
         color = self.color_bar.current_color
+        # Apply alpha from slider
+        alpha = self.intensity_slider.value()
+        color.setAlpha(alpha)
+        
         size = self.size_slider.value()
         
         # Set white for background

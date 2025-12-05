@@ -5,7 +5,7 @@ from .base_module import BaseModule
 class OpenPDFModule(BaseModule):
     @property
     def priority(self):
-        return 10
+        return 5
 
     def get_actions(self):
         open_action = QAction("Open PDF", self.main_window)

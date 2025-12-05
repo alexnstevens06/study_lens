@@ -2,7 +2,15 @@ from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem
 from PyQt6.QtGui import QPainterPath, QPen, QColor, QImage, QTransform
 from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer
 
+import uuid
+
 class InkCanvas(QGraphicsScene):
+    strokeCreated = pyqtSignal(dict)
+    strokeErased = pyqtSignal(dict) # Emits the stroke DATE of the erased item
+    itemsMoved = pyqtSignal(list) # List of {id, offset}
+    imageAdded = pyqtSignal(dict)
+    imageMoved = pyqtSignal(dict)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_path = None
@@ -20,12 +28,18 @@ class InkCanvas(QGraphicsScene):
         self.original_pens = {}
         self.is_moving_selection = False
         self.move_last_pos = None
+        self.is_moving_selection = False
+        self.move_last_pos = None
         self.deselected_items_in_stroke = set()
+        self.erased_items_in_stroke = [] # Track erased items specifically for undo
+        self.start_move_offsets = {} # Track initial positions for move undo
+
 
     def start_stroke(self, pos: QPointF, pressure: float) -> None:
         # Eraser Logic (Deselect or Erase)
         if self.tool == "eraser":
             self.deselected_items_in_stroke.clear()
+            self.erased_items_in_stroke = []
             self.process_eraser_at(pos)
             self.is_drawing = True
             return
@@ -36,6 +50,13 @@ class InkCanvas(QGraphicsScene):
             if self.selection_box and self.selection_box.contains(pos):
                 self.is_moving_selection = True
                 self.move_last_pos = pos
+                
+                # Capture start positions for undo
+                self.start_move_offsets = {}
+                for item in self.selected_items_group:
+                    uid = item.data(Qt.ItemDataRole.UserRole + 1)
+                    if uid:
+                        self.start_move_offsets[uid] = item.pos() # Should be (0,0) usually due to baking, but good to be safe
                 return
             
             # Clear selection if clicking outside
@@ -49,6 +70,11 @@ class InkCanvas(QGraphicsScene):
             pen = QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
             self.current_item = self.addPath(self.current_path, pen)
             self.current_item.setFlag(QGraphicsPathItem.GraphicsItemFlag.ItemIsSelectable)
+            
+            # Assign UUID
+            uid = str(uuid.uuid4())
+            self.current_item.setData(Qt.ItemDataRole.UserRole + 1, uid)
+
         
         elif self.tool == "lasso":
             self.current_path = QPainterPath(pos)
@@ -80,6 +106,24 @@ class InkCanvas(QGraphicsScene):
     def end_stroke(self, pos: QPointF, pressure: float) -> None:
         if self.is_moving_selection:
             self.is_moving_selection = False
+            
+            # Calculate total move delta for undo
+            move_data = []
+            for item in self.selected_items_group:
+                uid = item.data(Qt.ItemDataRole.UserRole + 1)
+                if uid:
+                     # Since we bake the move, the 'offset' is effectively the change in path translation.
+                     # But wait, bake_selection_move modifies the path in place and resets pos to 0,0.
+                     # So we need to capture the change BEFORE baking? 
+                     # Actually, bake relies on item.pos().
+                     offset = item.pos()
+                     if not offset.isNull():
+                         move_data.append({"id": uid, "offset": offset})
+
+            self.bake_selection_move()
+            
+            if move_data:
+                self.itemsMoved.emit(move_data)
             return
 
         self.is_drawing = False
@@ -99,8 +143,26 @@ class InkCanvas(QGraphicsScene):
             QTimer.singleShot(100, lambda: self.fade_out_and_remove(item_to_remove))
 
         if self.tool == "pencil" or self.tool == "lasso":
+            if self.tool == "pencil" and self.current_item:
+                 # Emit Creation Signal
+                 uid = self.current_item.data(Qt.ItemDataRole.UserRole + 1)
+                 stroke_data = {
+                     "points": [(p.x(), p.y()) for p in [self.current_path.elementAt(i) for i in range(self.current_path.elementCount())]],
+                     "color": self.current_item.pen().color().name(QColor.NameFormat.HexArgb),
+                     "width": self.current_item.pen().width(),
+                     "id": uid
+                 }
+                 self.strokeCreated.emit(stroke_data)
+
             self.current_path = None
             self.current_item = None
+            
+        elif self.tool == "eraser":
+            # Emit Erase Signal for all items erased in this stroke
+             for item_data in self.erased_items_in_stroke:
+                 self.strokeErased.emit(item_data)
+             self.erased_items_in_stroke = []
+
 
     def erase_at(self, pos: QPointF) -> None:
         eraser_rect = QRectF(pos.x() - 2, pos.y() - 2, 4, 4)
@@ -111,7 +173,12 @@ class InkCanvas(QGraphicsScene):
 
     def get_strokes(self) -> list:
         strokes = []
-        for item in self.items():
+        # items() returns items in descending stacking order (top-most first).
+        # We want to save them in creation order (bottom-most first), so we reverse the list.
+        items = list(self.items())
+        items.reverse()
+        
+        for item in items:
             if isinstance(item, QGraphicsPathItem) and item.path().elementCount() > 0:
                 path = item.path()
                 points = []
@@ -120,11 +187,14 @@ class InkCanvas(QGraphicsScene):
                     points.append((elem.x, elem.y))
                 
                 if points:
+                    color_name = item.pen().color().name(QColor.NameFormat.HexArgb)
                     strokes.append({
                         "points": points,
-                        "color": item.pen().color().name(),
-                        "width": item.pen().width()
+                        "color": color_name,
+                        "width": item.pen().width(),
+                        "id": item.data(Qt.ItemDataRole.UserRole + 1)
                     })
+        print(f"[DEBUG] get_strokes found {len(strokes)} strokes")
         return strokes
 
     def add_image(self, image: QImage, pos: QPointF = None) -> None:
@@ -142,7 +212,23 @@ class InkCanvas(QGraphicsScene):
                       QGraphicsPixmapItem.GraphicsItemFlag.ItemIsMovable | 
                       QGraphicsPixmapItem.GraphicsItemFlag.ItemIsFocusable)
         
+        # Assign UUID
+        uid = str(uuid.uuid4())
+        item.setData(Qt.ItemDataRole.UserRole + 1, uid)
+
         self.addItem(item)
+        
+        # Emit Signal
+        image_data = {
+             "image": image,
+             "x": item.pos().x(),
+             "y": item.pos().y(),
+             "width": pixmap.width(),
+             "height": pixmap.height(),
+             "id": uid
+        }
+        self.imageAdded.emit(image_data)
+
 
     def get_images(self) -> list:
         images = []
@@ -168,7 +254,8 @@ class InkCanvas(QGraphicsScene):
                     "x": pos.x(),
                     "y": pos.y(),
                     "width": width,
-                    "height": height
+                    "height": height,
+                    "id": item.data(Qt.ItemDataRole.UserRole + 1)
                 })
         return images
 
@@ -275,9 +362,108 @@ class InkCanvas(QGraphicsScene):
                 # If item is NOT selected (and not the selection box itself), erase it
                 elif item != self.selection_box:
                      if item not in self.deselected_items_in_stroke:
-                         self.removeItem(item)
+                          # Capture data before removing
+                          if isinstance(item, QGraphicsPathItem):
+                               path = item.path()
+                               points = []
+                               for i in range(path.elementCount()):
+                                   elem = path.elementAt(i)
+                                   points.append((elem.x, elem.y))
+                               
+                               uid = item.data(Qt.ItemDataRole.UserRole + 1)
+                               stroke_data = {
+                                   "points": points,
+                                   "color": item.pen().color().name(QColor.NameFormat.HexArgb),
+                                   "width": item.pen().width(),
+                                   "id": uid
+                               }
+                               self.erased_items_in_stroke.append(stroke_data)
+
+                          self.removeItem(item)
 
     def erase_at(self, pos: QPointF) -> None:
         # Kept for compatibility if needed, but process_eraser_at handles both
         self.process_eraser_at(pos)
 
+    def bake_selection_move(self) -> None:
+        """
+        Bakes the current item position into the path data and resets position to (0,0).
+        This ensures that get_strokes() returns the correct coordinates.
+        """
+        if not self.selected_items_group:
+            return
+            
+        for item in self.selected_items_group:
+            if isinstance(item, QGraphicsPathItem):
+                # Get the current offset
+                offset = item.pos()
+                if offset.isNull():
+                    continue
+                    
+                # Apply offset to path
+                path = item.path()
+                path.translate(offset.x(), offset.y())
+                item.setPath(path)
+                
+                # Reset item position
+                item.setPos(0, 0)
+                
+        # Also update selection box if it exists
+        if self.selection_box:
+             offset = self.selection_box.pos()
+             if not offset.isNull():
+                 rect = self.selection_box.rect()
+                 rect.translate(offset.x(), offset.y())
+                 self.selection_box.setRect(rect)
+                 self.selection_box.setPos(0, 0)
+
+    def load_strokes(self, strokes: list) -> None:
+        for stroke in strokes:
+            points = stroke["points"]
+            if not points:
+                continue
+                
+            path = QPainterPath()
+            path.moveTo(points[0][0], points[0][1])
+            for i in range(1, len(points)):
+                path.lineTo(points[i][0], points[i][1])
+                
+            color = QColor(stroke["color"])
+            width = stroke["width"]
+            
+            pen = QPen(color, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            item = self.addPath(path, pen)
+            item.setFlag(QGraphicsPathItem.GraphicsItemFlag.ItemIsSelectable)
+            
+            # Restore UUID
+            if "id" in stroke:
+                item.setData(Qt.ItemDataRole.UserRole + 1, stroke["id"])
+            else:
+                # Assign new ID if missing (legacy support)
+                item.setData(Qt.ItemDataRole.UserRole + 1, str(uuid.uuid4()))
+
+
+    def load_images(self, images: list) -> None:
+        from PyQt6.QtWidgets import QGraphicsPixmapItem
+        from PyQt6.QtGui import QPixmap
+        
+        for img_data in images:
+            image = img_data["image"]
+            x = img_data["x"]
+            y = img_data["y"]
+            
+            pixmap = QPixmap.fromImage(image)
+            item = QGraphicsPixmapItem(pixmap)
+            item.setPos(x, y)
+            
+            item.setFlags(QGraphicsPixmapItem.GraphicsItemFlag.ItemIsSelectable | 
+                          QGraphicsPixmapItem.GraphicsItemFlag.ItemIsMovable | 
+                          QGraphicsPixmapItem.GraphicsItemFlag.ItemIsFocusable)
+            
+            # Restore UUID
+            if "id" in img_data:
+                item.setData(Qt.ItemDataRole.UserRole + 1, img_data["id"])
+            else:
+                 item.setData(Qt.ItemDataRole.UserRole + 1, str(uuid.uuid4()))
+
+            self.addItem(item)
