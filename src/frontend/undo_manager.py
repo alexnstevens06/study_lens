@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsPixmapItem
-from PyQt6.QtCore import QObject, pyqtSignal, QPointF
+from PyQt6.QtCore import QObject, pyqtSignal, QPointF, Qt
 from PyQt6.QtGui import QColor, QPen, QTransform
 import uuid
 
@@ -48,11 +48,12 @@ class AddStrokeCommand(Command):
         self.item.setData(Qt.ItemDataRole.UserRole + 1, self.stroke_id)
 
     def undo(self):
-        if self.item:
+        # Check if item is valid and in scene
+        if self.item and self.item.scene() == self.scene:
             self.scene.removeItem(self.item)
             self.item = None
         else:
-            # Fallback if reference lost: find by ID
+            # Fallback if reference lost or item externally removed/replaced: find by ID
             item = self._find_item_by_id(self.stroke_id)
             if item:
                 self.scene.removeItem(item)
@@ -128,9 +129,15 @@ class AddImageCommand(Command):
         self.scene.addItem(self.item)
 
     def undo(self):
-        item = self._find_item_by_id(self.image_id)
-        if item:
-            self.scene.removeItem(item)
+        # Check if item is valid and in scene
+        if self.item and self.item.scene() == self.scene:
+            self.scene.removeItem(self.item)
+            self.item = None
+        else:
+            # Fallback
+            item = self._find_item_by_id(self.image_id)
+            if item:
+                self.scene.removeItem(item)
 
     def _find_item_by_id(self, uid):
         for item in self.scene.items():
@@ -189,6 +196,7 @@ class MoveItemsCommand(Command):
 class UndoManager(QObject):
     canUndoChanged = pyqtSignal(bool)
     canRedoChanged = pyqtSignal(bool)
+    historyChanged = pyqtSignal(int, int) # current_index, total_count
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -200,31 +208,42 @@ class UndoManager(QObject):
         self.redo_stack.clear() # New action invalidates redo history
         self.canUndoChanged.emit(True)
         self.canRedoChanged.emit(False)
+        self._emit_history_changed()
 
-    def undo(self):
-        if not self.undo_stack:
-            return
-        
-        command = self.undo_stack.pop()
-        command.undo()
-        self.redo_stack.append(command)
+    def undo(self, steps: int = 1):
+        for _ in range(steps):
+            if not self.undo_stack:
+                break
+            
+            command = self.undo_stack.pop()
+            command.undo()
+            self.redo_stack.append(command)
         
         self.canUndoChanged.emit(len(self.undo_stack) > 0)
         self.canRedoChanged.emit(True)
+        self._emit_history_changed()
 
-    def redo(self):
-        if not self.redo_stack:
-            return
-            
-        command = self.redo_stack.pop()
-        command.redo()
-        self.undo_stack.append(command)
+    def redo(self, steps: int = 1):
+        for _ in range(steps):
+            if not self.redo_stack:
+                break
+                
+            command = self.redo_stack.pop()
+            command.redo()
+            self.undo_stack.append(command)
         
         self.canUndoChanged.emit(True)
         self.canRedoChanged.emit(len(self.redo_stack) > 0)
+        self._emit_history_changed()
 
     def clear(self):
         self.undo_stack.clear()
         self.redo_stack.clear()
         self.canUndoChanged.emit(False)
         self.canRedoChanged.emit(False)
+        self._emit_history_changed()
+
+    def _emit_history_changed(self):
+        current_index = len(self.undo_stack)
+        total_count = len(self.undo_stack) + len(self.redo_stack)
+        self.historyChanged.emit(current_index, total_count)

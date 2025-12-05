@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem
 from PyQt6.QtGui import QPainterPath, QPen, QColor, QImage, QTransform
-from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer
+from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer, pyqtSignal
 
 import uuid
 
@@ -146,8 +146,14 @@ class InkCanvas(QGraphicsScene):
             if self.tool == "pencil" and self.current_item:
                  # Emit Creation Signal
                  uid = self.current_item.data(Qt.ItemDataRole.UserRole + 1)
+                 # elementAt returns QPainterPath.Element which has properties x and y (floats), not methods
+                 points = []
+                 for i in range(self.current_path.elementCount()):
+                     elem = self.current_path.elementAt(i)
+                     points.append((elem.x, elem.y))
+
                  stroke_data = {
-                     "points": [(p.x(), p.y()) for p in [self.current_path.elementAt(i) for i in range(self.current_path.elementCount())]],
+                     "points": points,
                      "color": self.current_item.pen().color().name(QColor.NameFormat.HexArgb),
                      "width": self.current_item.pen().width(),
                      "id": uid

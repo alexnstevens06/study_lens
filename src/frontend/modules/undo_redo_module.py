@@ -1,32 +1,58 @@
-from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtWidgets import QToolBar
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLabel, QSizePolicy
+from PyQt6.QtCore import Qt
 from .base_module import BaseModule
 
 class UndoRedoModule(BaseModule):
     def __init__(self, main_window):
         super().__init__(main_window)
-        self.undo_action = None
-        self.redo_action = None
+        self.label_counter = None
 
     @property
     def priority(self):
         return 10  # High priority, left side
 
     def get_actions(self):
-        # Undo Action
-        self.undo_action = QAction("<", self.main_window)
-        self.undo_action.setToolTip("Undo (Ctrl+Z)")
-        self.undo_action.triggered.connect(self.main_window.pdf_viewer.undo_manager.undo)
-        self.undo_action.setEnabled(False) # Initial state
+        # Create Container Widget
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        
+        container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
 
-        # Redo Action
-        self.redo_action = QAction(">", self.main_window)
-        self.redo_action.setToolTip("Redo (Ctrl+Y)")
-        self.redo_action.triggered.connect(self.main_window.pdf_viewer.undo_manager.redo)
-        self.redo_action.setEnabled(False)
+        # Buttons
+        btn_undo_5 = QPushButton("<<")
+        btn_undo = QPushButton("<")
+        btn_redo = QPushButton(">")
+        btn_redo_5 = QPushButton(">>")
+        
+        for btn in [btn_undo_5, btn_undo, btn_redo, btn_redo_5]:
+            btn.setFixedWidth(30)
+            
+        # Counter Label
+        self.label_counter = QLabel("0 / 0")
+        self.label_counter.setContentsMargins(5, 0, 5, 0)
+        self.label_counter.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+        self.label_counter.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Connect to manager signals to update state
-        self.main_window.pdf_viewer.undo_manager.canUndoChanged.connect(self.undo_action.setEnabled)
-        self.main_window.pdf_viewer.undo_manager.canRedoChanged.connect(self.redo_action.setEnabled)
+        # Layout
+        layout.addWidget(btn_undo_5)
+        layout.addWidget(btn_undo)
+        layout.addWidget(self.label_counter)
+        layout.addWidget(btn_redo)
+        layout.addWidget(btn_redo_5)
 
-        return [self.undo_action, self.redo_action]
+        # Connect Buttons
+        btn_undo_5.clicked.connect(lambda: self.main_window.pdf_viewer.undo_manager.undo(5))
+        btn_undo.clicked.connect(lambda: self.main_window.pdf_viewer.undo_manager.undo(1))
+        btn_redo.clicked.connect(lambda: self.main_window.pdf_viewer.undo_manager.redo(1))
+        btn_redo_5.clicked.connect(lambda: self.main_window.pdf_viewer.undo_manager.redo(5))
+
+        # Connect Signals for Updates
+        self.main_window.pdf_viewer.undo_manager.historyChanged.connect(self.update_ui)
+        
+        return [container]
+
+    def update_ui(self, current_index, total_count):
+        self.label_counter.setText(f"{current_index} / {total_count}")
