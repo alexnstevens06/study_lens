@@ -243,8 +243,11 @@ class PDFViewer(QGraphicsView):
             images = data.get("images", [])
             
             # Process Strokes
-            # Process Strokes
+            page_saved_stroke_ids = []
             for stroke in strokes:
+                if stroke.get("saved", False):
+                    continue
+                    
                 points = stroke["points"]
                 if len(points) < 2: continue
                 
@@ -271,10 +274,19 @@ class PDFViewer(QGraphicsView):
                     
                 annot.set_border(width=stroke["width"] / self.zoom_level)
                 annot.update()
+                
+                # Add to saved list
+                if "id" in stroke:
+                    page_saved_stroke_ids.append(stroke["id"])
+                    stroke["saved"] = True # Update local cache immediately
             
             # Process Images
-            print(f"[DEBUG] Found {len(images)} images to save on page {page_num}.")
+            page_saved_image_ids = []
+            print(f"[DEBUG] Found {len(images)} images on page {page_num}.")
             for img_data in images:
+                if img_data.get("saved", False):
+                    continue
+                    
                 try:
                     # Convert QImage to bytes (PNG format)
                     qimage = img_data["image"]
@@ -299,11 +311,17 @@ class PDFViewer(QGraphicsView):
                     # Insert image
                     page.insert_image(rect, stream=image_bytes)
                     print("[DEBUG] Image inserted successfully.")
+                    
+                    if "id" in img_data:
+                        page_saved_image_ids.append(img_data["id"])
+                        img_data["saved"] = True # Update local cache immediately
+                        
                 except Exception as e:
                     print(f"[ERROR] Error saving image: {e}")
             
         if save_to_disk:
             print("[DEBUG] Saving document to disk...")
+            
             if self.is_new_file:
                 # Create notes folder if it doesn't exist
                 notes_dir = os.path.join(os.getcwd(), "notes")
@@ -318,10 +336,54 @@ class PDFViewer(QGraphicsView):
                 self.is_new_file = False
                 print(f"[DEBUG] Saved new file to {file_path}")
             else:
+                # SAFE FULL SAVE STRATEGY
+                # Always perform a full save to a temporary file and replace the original.
+                # This prevents "xref" errors and "repaired file" issues.
                 try:
-                    self.doc.saveIncr()
-                    print("[DEBUG] Saved incrementally.")
+                    import shutil
+                    import time
+                    
+                    original_path = self.doc.name
+                    temp_path = original_path + ".tmp"
+                    
+                    # Full save with garbage collection and deflation
+                    # garbage=4: Remove unused objects
+                    # deflate=True: Compress streams
+                    self.doc.save(temp_path, garbage=4, deflate=True)
+                    self.doc.close()
+                    
+                    # Robust File Replacement with Retries
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            if os.path.exists(original_path):
+                                os.replace(temp_path, original_path)
+                            else:
+                                os.rename(temp_path, original_path)
+                            break # Success
+                        except OSError as e_os:
+                            if attempt < max_retries - 1:
+                                print(f"[WARNING] File replace failed (attempt {attempt+1}/{max_retries}): {e_os}. Retrying...")
+                                time.sleep(0.5)
+                            else:
+                                raise e_os
+
+                    print(f"[DEBUG] Safe full save completed to {original_path}")
+                    
+                    # Re-open the document
+                    self.doc = fitz.open(original_path)
+                    
                 except Exception as e:
-                    print(f"[ERROR] Error saving document incrementally: {e}")
-                    self.doc.save(self.doc.name)
-                    print(f"[DEBUG] Saved full document to {self.doc.name}")
+                    print(f"[FATAL] Save failed: {e}")
+                    # Attempt recovery
+                    if os.path.exists(self.doc.name):
+                         self.doc = fitz.open(self.doc.name)
+
+            # Update scene items to show they are saved
+            if self.current_page_num in self.page_data_cache:
+                current_cache = self.page_data_cache[self.current_page_num]
+                saved_stroke_ids = [s["id"] for s in current_cache["strokes"] if s.get("saved")]
+                saved_image_ids = [i["id"] for i in current_cache["images"] if i.get("saved")]
+                
+                self.scene.mark_strokes_as_saved(saved_stroke_ids)
+                self.scene.mark_images_as_saved(saved_image_ids)

@@ -194,14 +194,29 @@ class InkCanvas(QGraphicsScene):
                 
                 if points:
                     color_name = item.pen().color().name(QColor.NameFormat.HexArgb)
+                    # Check if item is already saved
+                    is_saved = item.data(Qt.ItemDataRole.UserRole + 2) == True
+                    
                     strokes.append({
                         "points": points,
                         "color": color_name,
                         "width": item.pen().width(),
-                        "id": item.data(Qt.ItemDataRole.UserRole + 1)
+                        "id": item.data(Qt.ItemDataRole.UserRole + 1),
+                        "saved": is_saved
                     })
         print(f"[DEBUG] get_strokes found {len(strokes)} strokes")
         return strokes
+
+    def mark_strokes_as_saved(self, stroke_ids: list) -> None:
+        """Marks the specified strokes as saved in the scene items."""
+        if not stroke_ids: return
+        
+        id_set = set(stroke_ids)
+        for item in self.items():
+            if isinstance(item, QGraphicsPathItem):
+                uid = item.data(Qt.ItemDataRole.UserRole + 1)
+                if uid in id_set:
+                    item.setData(Qt.ItemDataRole.UserRole + 2, True)
 
     def add_image(self, image: QImage, pos: QPointF = None) -> None:
         from PyQt6.QtWidgets import QGraphicsPixmapItem
@@ -255,15 +270,36 @@ class InkCanvas(QGraphicsScene):
                 width = pixmap.width()
                 height = pixmap.height()
                 
+                # Check if item is already saved
+                is_saved = item.data(Qt.ItemDataRole.UserRole + 2) == True
+                
                 images.append({
                     "image": image,
                     "x": pos.x(),
                     "y": pos.y(),
                     "width": width,
                     "height": height,
-                    "id": item.data(Qt.ItemDataRole.UserRole + 1)
+                    "id": item.data(Qt.ItemDataRole.UserRole + 1),
+                    "saved": is_saved
                 })
         return images
+
+    def mark_images_as_saved(self, image_ids: list) -> None:
+        """Marks the specified images as saved in the scene items."""
+        if not image_ids: return
+        
+        print(f"[DEBUG] mark_images_as_saved called for IDs: {image_ids}")
+        id_set = set(image_ids)
+        mapped_count = 0
+        for item in self.items():
+            from PyQt6.QtWidgets import QGraphicsPixmapItem
+            if isinstance(item, QGraphicsPixmapItem):
+                uid = item.data(Qt.ItemDataRole.UserRole + 1)
+                # print(f"[DEBUG] Checking item {uid}") 
+                if uid in id_set:
+                    item.setData(Qt.ItemDataRole.UserRole + 2, True)
+                    mapped_count += 1
+        print(f"[DEBUG] Marked {mapped_count} images as saved.")
 
     def create_selection_group(self, items: list) -> None:
         if not items:
@@ -447,6 +483,10 @@ class InkCanvas(QGraphicsScene):
             else:
                 # Assign new ID if missing (legacy support)
                 item.setData(Qt.ItemDataRole.UserRole + 1, str(uuid.uuid4()))
+            
+            # Restore Saved Status
+            if stroke.get("saved", False):
+                item.setData(Qt.ItemDataRole.UserRole + 2, True)
 
 
     def load_images(self, images: list) -> None:
@@ -471,5 +511,9 @@ class InkCanvas(QGraphicsScene):
                 item.setData(Qt.ItemDataRole.UserRole + 1, img_data["id"])
             else:
                  item.setData(Qt.ItemDataRole.UserRole + 1, str(uuid.uuid4()))
+
+            # Restore Saved Status
+            if img_data.get("saved", False):
+                item.setData(Qt.ItemDataRole.UserRole + 2, True)
 
             self.addItem(item)
