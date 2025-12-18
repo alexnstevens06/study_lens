@@ -387,3 +387,6 @@ class PDFViewer(QGraphicsView):
                 
                 self.scene.mark_strokes_as_saved(saved_stroke_ids)
                 self.scene.mark_images_as_saved(saved_image_ids)
+                
+            # Clear undo history as we have committed changes
+            self.undo_manager.clear()

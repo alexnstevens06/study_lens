@@ -131,10 +131,21 @@ class InkCanvas(QGraphicsScene):
         if self.tool == "lasso" and self.current_path:
             self.current_path.closeSubpath()
             self.current_item.setPath(self.current_path)
-            # Select items intersecting the path (easier for large objects)
-            self.setSelectionArea(self.current_path, Qt.ItemSelectionOperation.ReplaceSelection, Qt.ItemSelectionMode.IntersectsItemShape, QTransform())
             
-            # Create selection group from selected items
+            # Construct Selection Operation
+            op = Qt.ItemSelectionOperation.ReplaceSelection
+            
+            # If we already have selected items, we are in Additive Mode
+            if self.selected_items_group:
+                op = Qt.ItemSelectionOperation.AddToSelection
+            else:
+                 # If replacing/fresh, ensure we clear any stale state (though clear_selection usually handles this)
+                 self.clear_selection()
+
+            # Select items intersecting the path
+            self.setSelectionArea(self.current_path, op, Qt.ItemSelectionMode.IntersectsItemShape, QTransform())
+            
+            # Create selection group from ALL selected items (Old + New)
             items = self.selectedItems()
             self.create_selection_group(items)
             
@@ -306,7 +317,7 @@ class InkCanvas(QGraphicsScene):
             return
             
         self.selected_items_group = items
-        self.original_pens = {}
+        # self.original_pens = {} # Removed to allow additive updates
         
         # Calculate bounding rect
         min_x, min_y = float('inf'), float('inf')
@@ -314,8 +325,9 @@ class InkCanvas(QGraphicsScene):
         
         for item in items:
             if isinstance(item, QGraphicsPathItem):
-                # Save original pen
-                self.original_pens[item] = QPen(item.pen())
+                # Save original pen ONLY if not already saved (Additive Logic)
+                if item not in self.original_pens:
+                    self.original_pens[item] = QPen(item.pen())
                 
                 # Set to Red
                 new_pen = QPen(item.pen())
@@ -332,6 +344,12 @@ class InkCanvas(QGraphicsScene):
         # Create Selection Box
         if min_x != float('inf'):
             from PyQt6.QtWidgets import QGraphicsRectItem
+            
+            # Remove old selection box if it exists
+            if self.selection_box:
+                self.removeItem(self.selection_box)
+                self.selection_box = None
+
             rect = QRectF(min_x - 5, min_y - 5, (max_x - min_x) + 10, (max_y - min_y) + 10)
             self.selection_box = QGraphicsRectItem(rect)
             pen = QPen(QColor("blue"), 1, Qt.PenStyle.DotLine)
