@@ -379,14 +379,9 @@ class PDFViewer(QGraphicsView):
                     if os.path.exists(self.doc.name):
                          self.doc = fitz.open(self.doc.name)
 
-            # Update scene items to show they are saved
-            if self.current_page_num in self.page_data_cache:
-                current_cache = self.page_data_cache[self.current_page_num]
-                saved_stroke_ids = [s["id"] for s in current_cache["strokes"] if s.get("saved")]
-                saved_image_ids = [i["id"] for i in current_cache["images"] if i.get("saved")]
-                
-                self.scene.mark_strokes_as_saved(saved_stroke_ids)
-                self.scene.mark_images_as_saved(saved_image_ids)
+            # Clear cache and re-render to show baked state
+            self.page_data_cache = {}
+            self.render_page()
                 
             # Clear undo history as we have committed changes
             self.undo_manager.clear()
