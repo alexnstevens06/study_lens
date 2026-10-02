@@ -1,8 +1,104 @@
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem
-from PyQt6.QtGui import QPainterPath, QPen, QColor, QImage, QTransform
+from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem, QGraphicsItem
+from PyQt6.QtGui import QPainterPath, QPen, QColor, QImage, QTransform, QPainter
 from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer, pyqtSignal
 
 import uuid
+
+class _LiveStrokeItem(QGraphicsItem):
+    """Ink stroke while the pen is down.
+
+    Points are stored in a list and each new segment is drawn once into a
+    QImage. The graphics view only repaints that segment, instead of copying
+    a QPainterPath of the whole stroke on every sample.
+    """
+
+    def __init__(self, color, width):
+        super().__init__()
+        self.color = QColor(color)
+        self.pen_width = float(width)
+        self._pad = self.pen_width / 2.0 + 1.0
+        self.points = []
+        self._bounds = QRectF()
+        self._origin = QPointF(0, 0)
+        self._img = QImage(1, 1, QImage.Format.Format_ARGB32_Premultiplied)
+        self._img.fill(Qt.GlobalColor.transparent)
+
+    def boundingRect(self):
+        return self._bounds
+
+    def paint(self, painter, option, widget=None):
+        painter.drawImage(self._origin, self._img)
+
+    def _pen(self):
+        return QPen(
+            self.color,
+            self.pen_width,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+            Qt.PenJoinStyle.RoundJoin,
+        )
+
+    def _to_img(self, pos):
+        return QPointF(pos.x() - self._origin.x(), pos.y() - self._origin.y())
+
+    def _ensure(self, pos):
+        pad = self._pad + 2.0
+        x, y = pos.x(), pos.y()
+        left, top = self._origin.x(), self._origin.y()
+        right = left + self._img.width()
+        bottom = top + self._img.height()
+        if left + pad <= x <= right - pad and top + pad <= y <= bottom - pad:
+            return
+        nleft, ntop, nright, nbottom = left, top, right, bottom
+        grow_w = max(self._img.width(), 32)
+        grow_h = max(self._img.height(), 32)
+        if x - pad < left:
+            nleft = x - pad - grow_w
+        if y - pad < top:
+            ntop = y - pad - grow_h
+        if x + pad > right:
+            nright = x + pad + grow_w
+        if y + pad > bottom:
+            nbottom = y + pad + grow_h
+        nw = max(int(nright - nleft), self._img.width() * 2, 1)
+        nh = max(int(nbottom - ntop), self._img.height() * 2, 1)
+        new_img = QImage(nw, nh, QImage.Format.Format_ARGB32_Premultiplied)
+        new_img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(new_img)
+        painter.drawImage(int(left - nleft), int(top - ntop), self._img)
+        painter.end()
+        self._img = new_img
+        self._origin = QPointF(nleft, ntop)
+
+    def add_point(self, pos):
+        pos = QPointF(pos)
+        if not self.points:
+            self.points.append(pos)
+            self._origin = QPointF(pos.x() - 16, pos.y() - 16)
+            self._img = QImage(32, 32, QImage.Format.Format_ARGB32_Premultiplied)
+            self._img.fill(Qt.GlobalColor.transparent)
+            dirty = QRectF(pos.x() - self._pad, pos.y() - self._pad, self._pad * 2, self._pad * 2)
+            self.prepareGeometryChange()
+            self._bounds = dirty
+            painter = QPainter(self._img)
+            painter.setPen(self._pen())
+            painter.drawPoint(self._to_img(pos))
+            painter.end()
+            self.update(dirty)
+            return
+        prev = self.points[-1]
+        self.points.append(pos)
+        self._ensure(prev)
+        self._ensure(pos)
+        dirty = QRectF(prev, pos).normalized().adjusted(-self._pad, -self._pad, self._pad, self._pad)
+        self.prepareGeometryChange()
+        self._bounds = self._bounds.united(dirty)
+        painter = QPainter(self._img)
+        painter.setPen(self._pen())
+        painter.drawLine(self._to_img(prev), self._to_img(pos))
+        painter.end()
+        self.update(dirty)
+
 
 class InkCanvas(QGraphicsScene):
     strokeCreated = pyqtSignal(dict)
@@ -15,6 +111,7 @@ class InkCanvas(QGraphicsScene):
         super().__init__(parent)
         self.current_path = None
         self.current_item = None
+        self.live_stroke = None
         self.tool = "pencil"  # pencil, eraser
         self.is_drawing = False
         
@@ -65,15 +162,13 @@ class InkCanvas(QGraphicsScene):
 
         self.is_drawing = True
         if self.tool == "pencil":
-            self.current_path = QPainterPath(pos)
-            #pen = QPen(self.pen_color, self.pen_width * pressure, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-            pen = QPen(self.pen_color, self.pen_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-            self.current_item = self.addPath(self.current_path, pen)
-            self.current_item.setFlag(QGraphicsPathItem.GraphicsItemFlag.ItemIsSelectable)
-            
-            # Assign UUID
+            self.live_stroke = _LiveStrokeItem(self.pen_color, self.pen_width)
             uid = str(uuid.uuid4())
-            self.current_item.setData(Qt.ItemDataRole.UserRole + 1, uid)
+            self.live_stroke.setData(Qt.ItemDataRole.UserRole + 1, uid)
+            self.live_stroke.add_point(pos)
+            self.addItem(self.live_stroke)
+            self.current_item = self.live_stroke
+            self.current_path = None
 
         
         elif self.tool == "lasso":
@@ -96,7 +191,11 @@ class InkCanvas(QGraphicsScene):
         if not self.is_drawing:
             return
 
-        if (self.tool == "pencil" or self.tool == "lasso") and self.current_path:
+        if self.tool == "pencil" and self.live_stroke is not None:
+            self.live_stroke.add_point(pos)
+            return
+
+        if self.tool == "lasso" and self.current_path:
             self.current_path.lineTo(pos)
             self.current_item.setPath(self.current_path)
             
@@ -125,6 +224,9 @@ class InkCanvas(QGraphicsScene):
             if move_data:
                 self.itemsMoved.emit(move_data)
             return
+
+        if self.tool == "pencil":
+            self._commit_live_stroke()
 
         self.is_drawing = False
         
@@ -180,6 +282,32 @@ class InkCanvas(QGraphicsScene):
                  self.strokeErased.emit(item_data)
              self.erased_items_in_stroke = []
 
+
+
+    def _commit_live_stroke(self) -> None:
+        """Turn the in-progress image stroke into one path item."""
+        live = self.live_stroke
+        if live is None:
+            return
+        points = list(live.points)
+        color = QColor(live.color)
+        width = live.pen_width
+        uid = live.data(Qt.ItemDataRole.UserRole + 1)
+        self.removeItem(live)
+        self.live_stroke = None
+
+        path = QPainterPath()
+        if points:
+            path.moveTo(points[0])
+            for point in points[1:]:
+                path.lineTo(point)
+        pen = QPen(color, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        item = self.addPath(path, pen)
+        item.setFlag(QGraphicsPathItem.GraphicsItemFlag.ItemIsSelectable)
+        if uid:
+            item.setData(Qt.ItemDataRole.UserRole + 1, uid)
+        self.current_path = path
+        self.current_item = item
 
     def erase_at(self, pos: QPointF) -> None:
         eraser_rect = QRectF(pos.x() - 2, pos.y() - 2, 4, 4)

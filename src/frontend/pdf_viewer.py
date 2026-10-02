@@ -24,6 +24,7 @@ class PDFViewer(QGraphicsView):
         self.current_page_num = 0
         self.is_new_file = False
         self.page_data_cache = {} # Cache for strokes and images: {page_num: {"strokes": [], "images": []}}
+        self._bg_pixmap_cache = {}
         
         # Optimization: Render at a reasonable scale
         self.zoom_level = 2.0  # 2.0 = 144 DPI (High Quality)
@@ -72,7 +73,7 @@ class PDFViewer(QGraphicsView):
         self.is_new_file = is_new_file
         self.current_page_num = 0
         self.page_data_cache = {} # Reset cache on new document
-        self.render_page()
+        self._bg_pixmap_cache = {}
         self.render_page()
         self.document_changed.emit()
 
@@ -170,21 +171,22 @@ class PDFViewer(QGraphicsView):
             print(f"Error loading page {self.current_page_num}: {e}")
             return
         
-        # Render page to image
-        mat = fitz.Matrix(self.zoom_level, self.zoom_level)
-        pix = page.get_pixmap(matrix=mat)
-        
-        # Convert to QImage
-        img_format = QImage.Format.Format_RGB888
-        img = QImage(pix.samples, pix.width, pix.height, pix.stride, img_format)
-        
-        # Convert to QPixmap and add to scene
-        pixmap = QPixmap.fromImage(img)
+        # Render page to image. Reuse a pixmap when this page and zoom were
+        # already rasterized; the PDF pixels do not change until a save.
+        cache_key = (self.current_page_num, self.zoom_level)
+        pixmap = self._bg_pixmap_cache.get(cache_key)
+        if pixmap is None:
+            mat = fitz.Matrix(self.zoom_level, self.zoom_level)
+            pix = page.get_pixmap(matrix=mat)
+            img_format = QImage.Format.Format_RGB888
+            img = QImage(pix.samples, pix.width, pix.height, pix.stride, img_format).copy()
+            pixmap = QPixmap.fromImage(img)
+            self._bg_pixmap_cache[cache_key] = pixmap
         
         self.scene.clear()
         bg_item = self.scene.addPixmap(pixmap)
         bg_item.setData(Qt.ItemDataRole.UserRole, "background")
-        self.setSceneRect(0, 0, pix.width, pix.height)
+        self.setSceneRect(0, 0, pixmap.width(), pixmap.height())
         
         # Restore strokes and images from cache if available
         if self.current_page_num in self.page_data_cache:
@@ -381,6 +383,7 @@ class PDFViewer(QGraphicsView):
 
             # Clear cache and re-render to show baked state
             self.page_data_cache = {}
+            self._bg_pixmap_cache = {}
             self.render_page()
                 
             # Clear undo history as we have committed changes
