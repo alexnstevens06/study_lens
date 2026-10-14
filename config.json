@@ -1,0 +1,18 @@
+{
+  "modules": {
+    "open-pdf": true,
+    "close-pdf": true,
+    "navigation": true,
+    "new-note": true,
+    "pen-settings": true,
+    "undo-redo": true,
+    "save": true
+  },
+  "gestures": {
+    "pinch": true,
+    "swipe": true,
+    "pen": true,
+    "pan": true,
+    "clipboard": true
+  }
+}
