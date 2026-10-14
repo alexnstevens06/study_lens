@@ -1,0 +1,4 @@
+{
+  "system_prompt": "You are an expert study assistant helping a student understand complex topics.",
+  "summarize_prompt": "Summarize the following text into key points."
+}
