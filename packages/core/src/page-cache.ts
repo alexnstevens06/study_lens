@@ -28,6 +28,14 @@ export class PageCache {
     this.history.clear();
   }
 
+  /** Install ink read from a PDF. Does not record undo commands. */
+  loadSnapshots(pages: ReadonlyMap<number, PageSnapshot>): void {
+    for (const [index, snapshot] of pages) {
+      this.pages.set(index, cloneSnapshot(snapshot));
+    }
+    this.page.restore(this.pages.get(this.currentIndex) ?? emptyPage());
+  }
+
   /** Drop cached ink after it has been written into the PDF. */
   drop(): void {
     this.pages.clear();

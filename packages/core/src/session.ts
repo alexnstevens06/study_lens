@@ -10,7 +10,7 @@ import {
   readPdfStructure,
   type PageSize,
 } from './pdf-document.js';
-import { bakeAnnotations } from './annotations.js';
+import { bakeAnnotations, takeInkAnnotations } from './annotations.js';
 import {
   clonePen,
   DEFAULT_PEN,
@@ -82,14 +82,19 @@ export class StudySession {
   };
 
   async openPdf(name: string, bytes: Uint8Array): Promise<void> {
-    const structure = await readPdfStructure(bytes);
+    const lifted = await takeInkAnnotations(bytes, this.renderScale);
+    const structure = await readPdfStructure(lifted.bytes);
     if (structure.pageCount < 1) throw new Error('PDF has no pages');
-    this.bytes = bytes.slice();
+    this.bytes = lifted.bytes.slice();
     this.fileName = name;
     this.isNew = false;
     this.pageCount = structure.pageCount;
     this.pageSizes = structure.pageSizes;
     this.resetPages();
+    if (lifted.pages.size > 0) {
+      this.cache.loadSnapshots(lifted.pages);
+      this.emitView();
+    }
   }
 
   async newNote(): Promise<void> {

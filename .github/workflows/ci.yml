@@ -57,3 +57,31 @@ jobs:
       - run: npm run desktop:build
       - name: Cargo license check
         run: node scripts/check-licenses.mjs --cargo packages/desktop/src-tauri
+
+  desktop-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run desktop:build:macos
+      - name: Cargo license check
+        run: node scripts/check-licenses.mjs --cargo packages/desktop/src-tauri
+
+  desktop-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run desktop:build:windows
+      - name: Cargo license check
+        run: node scripts/check-licenses.mjs --cargo packages/desktop/src-tauri

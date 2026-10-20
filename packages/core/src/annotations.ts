@@ -8,7 +8,7 @@ import {
   PDFRef,
   type PDFPage,
 } from 'pdf-lib';
-import { cloneSnapshot, type PageSnapshot, type PlacedImage, type Stroke } from './types.js';
+import { cloneSnapshot, newId, type PageSnapshot, type PlacedImage, type Point, type Stroke } from './types.js';
 
 export interface InkAnnotationRecord {
   pageIndex: number;
@@ -204,6 +204,95 @@ function inkRecord(dict: PDFDict, pageIndex: number): InkAnnotationRecord | null
     width: dictWidth(dict),
     traces,
   };
+}
+
+function colorByte(channel: number): number {
+  if (!Number.isFinite(channel)) return 0;
+  const scaled = channel <= 1 ? channel * 255 : channel;
+  return Math.min(255, Math.max(0, Math.round(scaled)));
+}
+
+function alphaByte(opacity: number): number {
+  if (!Number.isFinite(opacity)) return 255;
+  const scaled = opacity <= 1 ? opacity * 255 : opacity;
+  return Math.min(255, Math.max(0, Math.round(scaled)));
+}
+
+/** PDF ink is one trace per stroke. A tap saved by this app comes back as two samples. */
+function strokesFromInk(record: InkAnnotationRecord, pageHeight: number, scale: number): Stroke[] {
+  const color = {
+    r: colorByte(record.color[0] ?? 0),
+    g: colorByte(record.color[1] ?? 0),
+    b: colorByte(record.color[2] ?? 0),
+    a: alphaByte(record.opacity),
+  };
+  const width = (Number.isFinite(record.width) ? Math.max(0, record.width) : 0) * scale;
+  const strokes: Stroke[] = [];
+  for (const trace of record.traces) {
+    const points: Point[] = [];
+    for (let index = 0; index + 1 < trace.length; index += 2) {
+      const x = trace[index];
+      const y = trace[index + 1];
+      if (x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+      points.push({ x: x * scale, y: (pageHeight - y) * scale, pressure: 1 });
+    }
+    if (points.length === 0) continue;
+    strokes.push({
+      id: newId(),
+      points,
+      color: { ...color },
+      width,
+      saved: false,
+    });
+  }
+  return strokes;
+}
+
+function detachPageInk(page: PDFPage, pageIndex: number, scale: number): Stroke[] {
+  const annots = page.node.lookup(PDFName.of('Annots'));
+  if (!(annots instanceof PDFArray)) return [];
+  const strokes: Stroke[] = [];
+  const drop: number[] = [];
+  for (let index = 0; index < annots.size(); index += 1) {
+    const annot = annots.lookup(index);
+    if (!(annot instanceof PDFDict)) continue;
+    const record = inkRecord(annot, pageIndex);
+    if (!record) continue;
+    const converted = strokesFromInk(record, page.getHeight(), scale);
+    if (converted.length === 0) continue;
+    strokes.push(...converted);
+    drop.push(index);
+  }
+  for (let index = drop.length - 1; index >= 0; index -= 1) {
+    const at = drop[index];
+    if (at === undefined) continue;
+    annots.remove(at);
+  }
+  if (annots.size() === 0) page.node.delete(PDFName.of('Annots'));
+  return strokes;
+}
+
+/**
+ * Read ink into page snapshots and remove it from the working PDF.
+ * The strokes are unsaved, so the next bake writes eraser and lasso edits once
+ * instead of leaving the original annotation underneath.
+ */
+export async function takeInkAnnotations(
+  pdfBytes: Uint8Array,
+  scale: number,
+): Promise<{ bytes: Uint8Array; pages: Map<number, PageSnapshot> }> {
+  if (!(scale > 0)) throw new Error('Render scale must be positive');
+  const doc = await PDFDocument.load(pdfBytes);
+  const pages = new Map<number, PageSnapshot>();
+  let removed = false;
+  doc.getPages().forEach((page, pageIndex) => {
+    const strokes = detachPageInk(page, pageIndex, scale);
+    if (strokes.length === 0) return;
+    removed = true;
+    pages.set(pageIndex, { strokes, images: [] });
+  });
+  if (!removed) return { bytes: pdfBytes, pages };
+  return { bytes: await doc.save(), pages };
 }
 
 export async function listInkAnnotations(pdfBytes: Uint8Array): Promise<InkAnnotationRecord[]> {

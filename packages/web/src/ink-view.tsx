@@ -365,6 +365,7 @@ export function InkView(props: InkViewProps): ReactElement {
           data-testid="ink-surface"
           data-ready={ready ? 'true' : 'false'}
           data-stroke-count={view.strokeCount}
+          data-document-generation={view.documentGeneration}
           style={{
             width: pageWidth,
             height: pageHeight,
