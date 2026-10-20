@@ -39,11 +39,16 @@ function numberArray(value: unknown): number[] {
 }
 
 function addInk(page: PDFPage, stroke: Stroke, scale: number): boolean {
-  if (stroke.points.length < 2 || stroke.saved) return false;
+  if (stroke.points.length < 1 || stroke.saved) return false;
+  const origin = stroke.points[0];
+  if (!origin) return false;
+  // A tap is one sample. Nudge a second sample so round caps still paint a dot.
+  const samples =
+    stroke.points.length === 1 ? [origin, { ...origin, x: origin.x + 0.01 * scale }] : stroke.points;
   const doc = page.doc;
   const context = doc.context;
   const height = page.getHeight();
-  const pdfPoints = stroke.points.map((point) => ({
+  const pdfPoints = samples.map((point) => ({
     x: point.x / scale,
     y: height - point.y / scale,
   }));

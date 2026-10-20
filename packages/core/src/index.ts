@@ -53,6 +53,7 @@ export {
   MAX_VIEW_ZOOM,
   MIN_VIEW_ZOOM,
   classifySwipe,
+  drawingPressure,
   nextViewZoom,
   parsePageNumber,
   pointerKind,

@@ -62,9 +62,22 @@ export function nextViewZoom(current: number, factor: number): number {
   return Math.min(MAX_VIEW_ZOOM, Math.max(MIN_VIEW_ZOOM, current * factor));
 }
 
-/** 1-based page field. Returns null when the text is not a number. */
+/**
+ * Pointer Events reports 0.5 for a mouse, which is "no pressure sensor", not a
+ * light stroke. Only a pen should change the on-screen width.
+ */
+export function drawingPressure(kind: PointerKind, pressure: number): number {
+  if (kind !== 'pen') return 1;
+  return pressure;
+}
+
+const PAGE_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/** 1-based page field. Returns null when the text is not a decimal number. */
 export function parsePageNumber(text: string): number | null {
-  const value = Number(text.trim());
+  const trimmed = text.trim();
+  if (!PAGE_NUMBER.test(trimmed)) return null;
+  const value = Number(trimmed);
   if (!Number.isFinite(value)) return null;
   return Math.round(value);
 }

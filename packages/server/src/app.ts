@@ -177,12 +177,32 @@ function parseContextItem(value: unknown): ContextItem | null {
   return { type: value.type, content: value.content, metadata };
 }
 
+function explicitQuality(accept: string, mediaType: string): { q: number; index: number } | null {
+  let best: { q: number; index: number } | null = null;
+  const parts = accept.split(',');
+  for (let index = 0; index < parts.length; index += 1) {
+    const [rawName, ...params] = (parts[index] ?? '').split(';');
+    if (rawName?.trim().toLowerCase() !== mediaType) continue;
+    let q = 1;
+    for (const param of params) {
+      const separator = param.indexOf('=');
+      if (separator === -1) continue;
+      if (param.slice(0, separator).trim().toLowerCase() !== 'q') continue;
+      const parsed = Number(param.slice(separator + 1).trim());
+      q = Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 0;
+    }
+    if (!best || q > best.q) best = { q, index };
+  }
+  return best;
+}
+
 function prefersHtml(accept: string): boolean {
-  const html = accept.indexOf('text/html');
-  const json = accept.indexOf('application/json');
-  if (html === -1) return false;
-  if (json === -1) return true;
-  return html < json;
+  const html = explicitQuality(accept, 'text/html');
+  if (!html || html.q <= 0) return false;
+  const json = explicitQuality(accept, 'application/json');
+  if (!json || json.q <= 0) return true;
+  if (html.q !== json.q) return html.q > json.q;
+  return html.index < json.index;
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
@@ -221,7 +241,13 @@ function readBody(request: IncomingMessage): Promise<string> {
 }
 
 function serveStatic(response: ServerResponse, root: string, pathname: string, method: string): boolean {
-  const relative = decodeURIComponent(pathname).replace(/^\/+/, '');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  const relative = decoded.replace(/^\/+/, '');
   const rootPath = resolve(root);
   const full = resolve(rootPath, normalize(relative.length === 0 ? 'index.html' : relative));
   if (full !== rootPath && !full.startsWith(rootPath + sep)) return false;

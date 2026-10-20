@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { enabledGestures, enabledModules, parseConfig } from './config.js';
-import { classifySwipe, resolvePointerAction } from './pointer.js';
+import { classifySwipe, drawingPressure, nextViewZoom, resolvePointerAction } from './pointer.js';
 import { DEFAULT_PEN, rememberPen } from './types.js';
 
 const legacyConfigPath = join(dirname(fileURLToPath(import.meta.url)), '../../../legacy/config.json');
@@ -65,5 +65,19 @@ describe('stylus tool switching', () => {
     expect(classifySwipe(90, -10, 200)).toBe('previous');
     expect(classifySwipe(-80, 4, 900)).toBeNull();
     expect(classifySwipe(-10, 80, 120)).toBeNull();
+  });
+
+  it('uses full pen width for a mouse and real pressure for a pen', () => {
+    expect(drawingPressure('mouse', 0.5)).toBe(1);
+    expect(drawingPressure('mouse', 0)).toBe(1);
+    expect(drawingPressure('touch', 0.5)).toBe(1);
+    expect(drawingPressure('pen', 0.25)).toBe(0.25);
+  });
+
+  it('clamps the view zoom', () => {
+    expect(nextViewZoom(1, 1.08)).toBeCloseTo(1.08);
+    expect(nextViewZoom(6, 2)).toBe(6);
+    expect(nextViewZoom(0.3, 0.5)).toBe(0.3);
+    expect(nextViewZoom(1, Number.NaN)).toBe(1);
   });
 });

@@ -15,7 +15,7 @@ The previous PyQt6 app is frozen in [`legacy/`](legacy/README.md).
 | `config.json` | Which toolbar modules and gestures are on, ordered by priority |
 | `prompts.json` | Prompt text served by `GET /prompts` |
 
-pdf.js (Apache-2.0) rasterizes pages. pdf-lib (MIT) writes unsaved strokes back as PDF ink annotations and pastes images into the page. Scene coordinates are the PDF point size times a render scale of 2. Stroke width stored in the annotation is the pen width divided by that scale.
+pdf.js (Apache-2.0) rasterizes pages. pdf-lib (MIT) writes unsaved strokes back as PDF ink annotations and pastes images into the page. Scene coordinates are the PDF point size times a render scale of 2. Stroke width stored in the annotation is the pen width divided by that scale. Pen pressure changes the on-screen width only. A mouse has no pressure sensor, so it draws at the full pen width. A tap is saved as a dot.
 
 Touch pans, pinches to zoom, and swipes left or right to change pages. A pen tip draws with the pencil. The stylus eraser end switches to the eraser, and the barrel or right button switches to the lasso. A mouse uses the Pencil, Eraser, and Lasso buttons; the right button lassos for that stroke. The wheel zooms. Space-drag or the middle button pans.
 
@@ -88,7 +88,7 @@ npm run lint
 npm run typecheck
 ```
 
-Unit tests cover undo/redo, eraser hit testing, lasso move, the page cache, ink save and reload, config loading, and the API routes. The smoke test opens a sample PDF, draws, undoes, and saves.
+Unit tests cover undo/redo, eraser hit testing, lasso move, the page cache, ink save and reload (including taps and multi-page saves), config and page-number parsing, pointer pressure, and the API routes. The smoke test opens a sample PDF, draws, undoes, redoes, changes page, saves, and checks that the ink is in the downloaded PDF and on the reloaded page.
 
 ## License
 
