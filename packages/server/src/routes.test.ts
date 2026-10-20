@@ -1,5 +1,5 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import type { Server } from 'node:http';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { request, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,6 +25,28 @@ function options(overrides: Partial<ServerOptions> = {}): ServerOptions {
     staticDir: null,
     ...overrides,
   };
+}
+
+function get(
+  port: number,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; body: string; type: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request({ hostname: '127.0.0.1', port, path, headers }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => {
+        resolve({
+          status: response.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString('utf8'),
+          type: String(response.headers['content-type'] ?? ''),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 async function listen(serverOptions: ServerOptions): Promise<number> {
@@ -107,5 +129,32 @@ describe('API routes', () => {
     expect(await browser.text()).toContain('Study Partner');
     const client = await fetch(`http://127.0.0.1:${port}/`, { headers: { accept: 'application/json' } });
     expect(await client.json()).toEqual({ message: 'Study Partner Backend is running' });
+
+    const browserHeader = await get(port, '/', {
+      accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    });
+    expect(browserHeader.type).toContain('text/html');
+    const jsonPreferred = await get(port, '/', { accept: 'text/html;q=0.1, application/json' });
+    expect(jsonPreferred.status).toBe(200);
+    expect(jsonPreferred.type).toContain('application/json');
+    expect(JSON.parse(jsonPreferred.body)).toEqual({ message: 'Study Partner Backend is running' });
+    const htmlPreferred = await get(port, '/', { accept: 'application/json;q=0.2, text/html' });
+    expect(htmlPreferred.type).toContain('text/html');
+  });
+
+  it('does not serve files outside the static directory', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'study-lens-parent-'));
+    const directory = join(parent, 'public');
+    mkdirSync(directory);
+    writeFileSync(join(directory, 'index.html'), '<!doctype html><title>Study Partner</title>');
+    writeFileSync(join(parent, 'secret.txt'), 'secret');
+    const port = await listen(options({ staticDir: directory }));
+    const escaped = await get(port, '/%2e%2e%2fsecret.txt');
+    expect(escaped.status).toBe(404);
+    expect(escaped.body).not.toContain('secret');
+    expect((await get(port, '/../secret.txt')).status).toBe(404);
+    expect((await get(port, '/%')).status).toBe(404);
+    const posted = await fetch(`http://127.0.0.1:${port}/prompts`, { method: 'POST' });
+    expect(posted.status).toBe(405);
   });
 });

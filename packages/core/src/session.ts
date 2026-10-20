@@ -111,7 +111,7 @@ export class StudySession {
   }
 
   async goTo(index: number): Promise<void> {
-    if (this.bytes === null) return;
+    if (this.bytes === null || !Number.isFinite(index)) return;
     let target = index;
     if (target < 0) target = 0;
     if (target >= this.pageCount) {
@@ -186,6 +186,8 @@ export class StudySession {
   async buildSavedPdf(now = new Date()): Promise<SavedPdf> {
     if (this.bytes === null) throw new Error('No document open');
     const snapshots = this.cache.snapshotAll();
+    // Finishing an in-progress stroke updates history. Refresh before a save dialog can cancel.
+    this.emitView();
     const baked = await bakeAnnotations(this.bytes, snapshots, this.renderScale);
     const name = this.isNew || this.fileName.length === 0 ? noteFileName(now) : this.fileName;
     return { name, bytes: baked.bytes };

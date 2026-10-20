@@ -95,6 +95,21 @@ describe('undo and redo', () => {
     expect(page.strokeCount).toBe(0);
   });
 
+  it('puts erased strokes back in their original order', () => {
+    const page = new PageModel();
+    const history = new UndoManager();
+    draw(page, [[0, 0], [10, 0]], history);
+    draw(page, [[0, 30], [10, 30]], history);
+    draw(page, [[0, 60], [10, 60]], history);
+    eraseThrough(page, [[5, 60]], history);
+    eraseThrough(page, [[5, 0]], history);
+    expect(page.getRenderState().strokes.map((item) => item.stroke.points[0]?.y)).toEqual([30]);
+    history.undo(page);
+    expect(page.getRenderState().strokes.map((item) => item.stroke.points[0]?.y)).toEqual([0, 30]);
+    history.undo(page);
+    expect(page.getRenderState().strokes.map((item) => item.stroke.points[0]?.y)).toEqual([0, 30, 60]);
+  });
+
   it('undoes and redoes an added image', () => {
     const page = new PageModel();
     const history = new UndoManager();

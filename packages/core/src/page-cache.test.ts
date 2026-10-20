@@ -54,6 +54,11 @@ describe('page cache', () => {
     expect(parsePageNumber('2.6')).toBe(3);
     expect(parsePageNumber(' 4 ')).toBe(4);
     expect(parsePageNumber('next')).toBeNull();
+    expect(parsePageNumber('')).toBeNull();
+    expect(parsePageNumber('   ')).toBeNull();
+    expect(parsePageNumber('0x10')).toBeNull();
+    expect(parsePageNumber('Infinity')).toBeNull();
+    expect(parsePageNumber('1e309')).toBeNull();
   });
 
   it('keeps an untouched page empty in the cache', () => {

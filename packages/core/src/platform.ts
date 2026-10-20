@@ -28,7 +28,7 @@ export interface EntitlementService {
 }
 
 export class AllFeaturesEntitled implements EntitlementService {
-  async isEnabled(): Promise<boolean> {
+  async isEnabled(_flag: FeatureFlag, _session: UserSession): Promise<boolean> {
     return true;
   }
 }
@@ -77,12 +77,17 @@ export class MemoryDocumentStore implements DocumentStore {
   private readonly data = new Map<string, Uint8Array>();
 
   async read(userId: string, documentId: string): Promise<Uint8Array | null> {
-    const bytes = this.data.get(`${userId}/${documentId}`);
+    const bytes = this.data.get(this.key(userId, documentId));
     return bytes ? bytes.slice() : null;
   }
 
   async write(userId: string, documentId: string, bytes: Uint8Array): Promise<void> {
-    this.data.set(`${userId}/${documentId}`, bytes.slice());
+    this.data.set(this.key(userId, documentId), bytes.slice());
+  }
+
+  /** Length-prefix the user id so a slash inside either id cannot collide. */
+  private key(userId: string, documentId: string): string {
+    return `${userId.length}:${userId}\u0000${documentId}`;
   }
 }
 

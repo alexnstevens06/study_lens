@@ -2,6 +2,7 @@ import {
   MIN_VIEW_ZOOM,
   RENDER_SCALE,
   classifySwipe,
+  drawingPressure,
   newId,
   nextViewZoom,
   pointerKind,
@@ -32,7 +33,10 @@ export function InkView(props: InkViewProps): ReactElement {
   const pageRef = useRef<HTMLDivElement>(null);
   const pdfRef = useRef<HTMLCanvasElement>(null);
   const inkRef = useRef<HTMLCanvasElement>(null);
-  const [ready, setReady] = useState(false);
+  const renderKey = view.hasDocument ? `${view.documentGeneration}:${view.pageIndex}` : '';
+  const [paintedKey, setPaintedKey] = useState<string | null>(null);
+  if (paintedKey !== null && paintedKey !== renderKey) setPaintedKey(null);
+  const ready = renderKey.length > 0 && paintedKey === renderKey;
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Pan>({ x: 24, y: 24 });
   const gesturesRef = useRef(props.gestures);
@@ -68,12 +72,11 @@ export function InkView(props: InkViewProps): ReactElement {
   useEffect(() => {
     const canvas = pdfRef.current;
     const bytes = session.documentBytes;
-    if (!canvas || !bytes || !view.hasDocument) return;
+    if (!canvas || !bytes || renderKey.length === 0) return;
     let cancelled = false;
-    setReady(false);
     void renderPdfPage(bytes, view.pageIndex, canvas, RENDER_SCALE)
       .then(() => {
-        if (!cancelled) setReady(true);
+        if (!cancelled) setPaintedKey(renderKey);
       })
       .catch((error: unknown) => {
         if (!cancelled) errorRef.current(error instanceof Error ? error.message : 'Could not render the page');
@@ -81,7 +84,7 @@ export function InkView(props: InkViewProps): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [session, view.documentGeneration, view.pageIndex, view.hasDocument]);
+  }, [session, renderKey, view.pageIndex]);
 
   useEffect(() => {
     const paint = (): void => {
@@ -240,13 +243,15 @@ export function InkView(props: InkViewProps): ReactElement {
       if (action.stick) session.setTool(action.tool);
       drawingId = event.pointerId;
       viewport.setPointerCapture(event.pointerId);
-      session.pointerDown(action.tool, point.x, point.y, event.pressure);
+      session.pointerDown(action.tool, point.x, point.y, drawingPressure(kind, event.pressure));
     };
 
     const onPointerMove = (event: PointerEvent): void => {
       if (drawingId === event.pointerId) {
         const point = toPage(event);
-        if (point) session.pointerMove(point.x, point.y, event.pressure);
+        if (point) {
+          session.pointerMove(point.x, point.y, drawingPressure(pointerKind(event.pointerType), event.pressure));
+        }
         return;
       }
       if (mousePan && gesturesRef.current.has('pan')) {
@@ -287,7 +292,9 @@ export function InkView(props: InkViewProps): ReactElement {
       window.clearTimeout(holdTimer);
       if (drawingId === event.pointerId) {
         const point = toPage(event);
-        if (point) session.pointerUp(point.x, point.y, event.pressure);
+        if (point) {
+          session.pointerUp(point.x, point.y, drawingPressure(pointerKind(event.pointerType), event.pressure));
+        }
         drawingId = null;
         return;
       }

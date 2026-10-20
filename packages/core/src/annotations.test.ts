@@ -69,4 +69,24 @@ describe('annotation save round-trip', () => {
     const second = await bakeAnnotations(first.bytes, first.pages, RENDER_SCALE);
     expect(await countPageImages(second.bytes, 0)).toBe(1);
   });
+
+  it('saves a one-point tap as a dot and does not write an empty stroke', async () => {
+    const bytes = await createBlankPdf(200, 100);
+    const dot: Stroke = {
+      id: 'dot',
+      width: 4,
+      saved: false,
+      color: { r: 0, g: 0, b: 0, a: 255 },
+      points: [{ x: 20, y: 10, pressure: 1 }],
+    };
+    const empty: Stroke = { ...dot, id: 'empty', points: [] };
+    const pages = new Map<number, PageSnapshot>([[0, { strokes: [dot, empty], images: [] }]]);
+    const saved = await bakeAnnotations(bytes, pages, RENDER_SCALE);
+    const written = await listInkAnnotations(saved.bytes);
+    expect(written).toHaveLength(1);
+    expect(written[0]?.width).toBeCloseTo(2, 4);
+    expect(written[0]?.traces[0]).toHaveLength(4);
+    expect(saved.pages.get(0)?.strokes[0]?.saved).toBe(true);
+    expect(saved.pages.get(0)?.strokes[1]?.saved).toBe(false);
+  });
 });
