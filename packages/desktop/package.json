@@ -1,0 +1,17 @@
+{
+  "name": "@study-lens/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:linux": "tauri build --no-bundle",
+    "build:macos": "tauri build --no-bundle",
+    "build:windows": "tauri build --no-bundle"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4"
+  }
+}

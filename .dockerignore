@@ -1,0 +1,11 @@
+node_modules
+**/dist
+**/target
+legacy
+.git
+e2e
+playwright-report
+test-results
+notes
+*.md
+!README.md

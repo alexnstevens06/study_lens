@@ -1,18 +1,18 @@
 {
-    "modules": {
-        "src/frontend/modules/open_pdf_module.py": true,
-        "src/frontend/modules/close_pdf_module.py": true,
-        "src/frontend/modules/navigation_module.py": true,
-        "src/frontend/modules/new_note_module.py": true,
-        "src/frontend/modules/pen_settings_module.py": true,
-        "src/frontend/modules/undo_redo_module.py": true,
-        "src/frontend/modules/save_module.py": true
-    },
-    "gestures": {
-        "src/frontend/gestures/pinch_gesture.py": true,
-        "src/frontend/gestures/swipe_gesture.py": true,
-        "src/frontend/gestures/pen_gesture.py": true,
-        "src/frontend/gestures/pan_gesture.py": true,
-        "src/frontend/gestures/clipboard_handler.py": true
-    }
+  "modules": {
+    "open-pdf": true,
+    "close-pdf": true,
+    "navigation": true,
+    "new-note": true,
+    "pen-settings": true,
+    "undo-redo": true,
+    "save": true
+  },
+  "gestures": {
+    "pinch": true,
+    "swipe": true,
+    "pen": true,
+    "pan": true,
+    "clipboard": true
+  }
 }
