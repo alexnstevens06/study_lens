@@ -19,7 +19,9 @@
     "test": "vitest run",
     "e2e": "npm run build && playwright test",
     "check-licenses": "node scripts/check-licenses.mjs",
-    "desktop:build": "npm run build:linux -w @study-lens/desktop"
+    "desktop:build": "npm run build:linux -w @study-lens/desktop",
+    "desktop:build:macos": "npm run build:macos -w @study-lens/desktop",
+    "desktop:build:windows": "npm run build:windows -w @study-lens/desktop"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

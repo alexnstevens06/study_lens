@@ -72,9 +72,11 @@ Install a Rust stable toolchain, then:
 npm run dev -w @study-lens/desktop    # webview pointed at the Vite server
 npm run build -w @study-lens/desktop  # OS bundle
 npm run desktop:build                 # compile the Linux binary without packaging
+npm run desktop:build:macos           # compile the macOS binary without packaging
+npm run desktop:build:windows         # compile the Windows binary without packaging
 ```
 
-Linux also needs the Tauri system libraries: `libwebkit2gtk-4.1-dev`, `build-essential`, `libssl-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, and `patchelf`. macOS needs Xcode command line tools. Windows needs the Microsoft C++ build tools and WebView2. CI compiles the Linux binary with `--no-bundle`.
+Linux also needs the Tauri system libraries: `libwebkit2gtk-4.1-dev`, `build-essential`, `libssl-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, and `patchelf`. macOS needs Xcode command line tools. Windows needs the Microsoft C++ build tools and WebView2. CI compiles the Linux, macOS, and Windows binaries with `--no-bundle`.
 
 The desktop shell links the operating system webview. On Linux that is WebKitGTK, which is LGPL and is not vendored. JavaScript dependencies are checked in CI and must not be GPL or AGPL.
 
@@ -88,7 +90,7 @@ npm run lint
 npm run typecheck
 ```
 
-Unit tests cover undo/redo, eraser hit testing, lasso move, the page cache, ink save and reload (including taps and multi-page saves), config and page-number parsing, pointer pressure, and the API routes. The smoke test opens a sample PDF, draws, undoes, redoes, changes page, saves, and checks that the ink is in the downloaded PDF and on the reloaded page.
+Unit tests cover undo/redo, eraser hit testing, lasso move, the page cache, ink save and reload (including taps and multi-page saves), config and page-number parsing, pointer pressure, and the API routes. Reopening a saved PDF loads its ink into the page model, with the annotations removed from the working file, so the eraser and lasso can edit those strokes and the next save writes the edit once. The smoke tests open a sample PDF, draw, undo, redo, change page, save, and check that reloaded ink can be erased or moved and saved again.
 
 ## License
 

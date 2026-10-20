@@ -78,6 +78,90 @@ describe('session save', () => {
     expect(paging.page.getRenderState().strokes[0]?.stroke.points[0]).toMatchObject({ x: 6, y: 6 });
   });
 
+  it('reloads saved ink so the eraser can remove it and the next save keeps that edit', async () => {
+    const session = new StudySession();
+    await session.newNote();
+    draw(session, [[10, 10], [80, 10]]);
+    const saved = await session.buildSavedPdf();
+    session.commitSave(saved.bytes, saved.name);
+
+    const reopened = new StudySession();
+    await reopened.openPdf(saved.name, saved.bytes);
+    expect(reopened.getView()).toMatchObject({ strokeCount: 1, historyCurrent: 0, historyTotal: 0 });
+    expect(await listInkAnnotations(reopened.documentBytes ?? new Uint8Array())).toHaveLength(0);
+    const loaded = reopened.page.getRenderState().strokes[0]?.stroke;
+    expect(loaded?.saved).toBe(false);
+    expect(loaded?.points[0]).toMatchObject({ x: 10, y: 10 });
+    expect(loaded?.points[1]).toMatchObject({ x: 80, y: 10 });
+
+    reopened.pointerDown('eraser', 40, 10, 1);
+    reopened.pointerUp(40, 10, 1);
+    expect(reopened.getView().strokeCount).toBe(0);
+    const erased = await reopened.buildSavedPdf();
+    expect(await listInkAnnotations(erased.bytes)).toHaveLength(0);
+
+    reopened.undo();
+    expect(reopened.getView().strokeCount).toBe(1);
+    const restored = await reopened.buildSavedPdf();
+    expect(await listInkAnnotations(restored.bytes)).toHaveLength(1);
+  });
+
+  it('moves reloaded ink with the lasso and saves the new position once', async () => {
+    const session = new StudySession();
+    await session.newNote();
+    draw(session, [[10, 10], [80, 10]]);
+    const saved = await session.buildSavedPdf();
+
+    const reopened = new StudySession();
+    await reopened.openPdf(saved.name, saved.bytes);
+    reopened.pointerDown('lasso', -20, -20, 1);
+    reopened.pointerMove(120, -20, 1);
+    reopened.pointerMove(120, 40, 1);
+    reopened.pointerMove(-20, 40, 1);
+    reopened.pointerUp(-20, -20, 1);
+    expect(reopened.page.getRenderState().selectionRect).not.toBeNull();
+
+    reopened.pointerDown('pencil', 20, 10, 1);
+    reopened.pointerMove(20, 40, 1);
+    reopened.pointerUp(20, 40, 1);
+    const moved = reopened.page.getRenderState().strokes[0]?.stroke.points[0];
+    expect(moved).toMatchObject({ x: 10, y: 40 });
+    expect(reopened.getView().strokeCount).toBe(1);
+
+    const rewritten = await reopened.buildSavedPdf();
+    const ink = await listInkAnnotations(rewritten.bytes);
+    expect(ink).toHaveLength(1);
+    const trace = ink[0]?.traces[0] ?? [];
+    expect(trace[0]).toBeCloseTo(5, 2);
+    expect(trace[1]).toBeCloseTo(822, 2);
+    expect(trace[2]).toBeCloseTo(40, 2);
+    expect(trace[3]).toBeCloseTo(822, 2);
+
+    draw(reopened, [[12, 200], [40, 220]]);
+    const beside = await reopened.buildSavedPdf();
+    expect(await listInkAnnotations(beside.bytes)).toHaveLength(2);
+  });
+
+  it('reloads ink on each saved page and keeps pages the eraser did not touch', async () => {
+    const session = new StudySession();
+    await session.newNote();
+    draw(session, [[10, 12], [30, 12]]);
+    await session.changePage(1);
+    draw(session, [[14, 18], [40, 18]]);
+    const saved = await session.buildSavedPdf();
+
+    const reopened = new StudySession();
+    await reopened.openPdf('notes.pdf', saved.bytes);
+    expect(reopened.getView()).toMatchObject({ pageIndex: 0, strokeCount: 1, pageCount: 2 });
+    await reopened.goTo(1);
+    expect(reopened.getView().strokeCount).toBe(1);
+    reopened.pointerDown('eraser', 20, 18, 1);
+    reopened.pointerUp(20, 18, 1);
+    expect(reopened.getView().strokeCount).toBe(0);
+    const rewritten = await reopened.buildSavedPdf();
+    expect((await listInkAnnotations(rewritten.bytes)).map((item) => item.pageIndex)).toEqual([0]);
+  });
+
   it('ignores a page index that is not a finite number', async () => {
     const session = new StudySession();
     await session.newNote();

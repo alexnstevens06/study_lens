@@ -1,5 +1,11 @@
 export { assertNever } from './assert-never.js';
-export { bakeAnnotations, countPageImages, listInkAnnotations, type InkAnnotationRecord } from './annotations.js';
+export {
+  bakeAnnotations,
+  countPageImages,
+  listInkAnnotations,
+  takeInkAnnotations,
+  type InkAnnotationRecord,
+} from './annotations.js';
 export { UndoManager, applyCommand, type Command, type HistoryDirection } from './commands.js';
 export {
   GESTURES,

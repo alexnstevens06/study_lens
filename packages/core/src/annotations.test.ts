@@ -1,5 +1,6 @@
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
-import { bakeAnnotations, countPageImages, listInkAnnotations } from './annotations.js';
+import { bakeAnnotations, countPageImages, listInkAnnotations, takeInkAnnotations } from './annotations.js';
 import { createBlankPdf } from './pdf-document.js';
 import { RENDER_SCALE, type PageSnapshot, type PlacedImage, type Stroke } from './types.js';
 
@@ -88,5 +89,49 @@ describe('annotation save round-trip', () => {
     expect(written[0]?.traces[0]).toHaveLength(4);
     expect(saved.pages.get(0)?.strokes[0]?.saved).toBe(true);
     expect(saved.pages.get(0)?.strokes[1]?.saved).toBe(false);
+  });
+
+  it('lifts ink back into page strokes and leaves other annotations in the file', async () => {
+    const bytes = await createBlankPdf(200, 100);
+    const withLink = await PDFDocument.load(bytes);
+    const linkPage = withLink.getPages()[0];
+    if (!linkPage) throw new Error('missing page');
+    const link = withLink.context.register(
+      withLink.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Link'),
+        Rect: [1, 2, 3, 4],
+        Contents: PDFString.of('keep'),
+      }),
+    );
+    linkPage.node.set(PDFName.of('Annots'), withLink.context.obj([link]));
+    const linked = await withLink.save();
+    const pages = new Map<number, PageSnapshot>([[0, { strokes: [stroke()], images: [] }]]);
+    const saved = await bakeAnnotations(linked, pages, RENDER_SCALE);
+    expect(await listInkAnnotations(saved.bytes)).toHaveLength(1);
+
+    const lifted = await takeInkAnnotations(saved.bytes, RENDER_SCALE);
+    expect(await listInkAnnotations(lifted.bytes)).toHaveLength(0);
+    const loaded = lifted.pages.get(0)?.strokes[0];
+    expect(loaded?.saved).toBe(false);
+    expect(loaded?.width).toBeCloseTo(4, 2);
+    expect(loaded?.color).toMatchObject({ r: 255, g: 0, b: 0, a: 128 });
+    expect(loaded?.points[0]).toMatchObject({ x: 20, y: 10, pressure: 1 });
+    expect(loaded?.points[1]).toMatchObject({ x: 60, y: 30, pressure: 1 });
+
+    const reloaded = await PDFDocument.load(lifted.bytes);
+    const annots = reloaded.getPages()[0]?.node.lookup(PDFName.of('Annots'));
+    expect(annots).toBeInstanceOf(PDFArray);
+    if (!(annots instanceof PDFArray)) throw new Error('missing annotations');
+    const linkAnnot = annots.lookup(0);
+    expect(linkAnnot).toBeInstanceOf(PDFDict);
+    if (!(linkAnnot instanceof PDFDict)) throw new Error('missing link');
+    expect(String(linkAnnot.lookup(PDFName.of('Subtype')))).toContain('Link');
+
+    const untouched = await createBlankPdf();
+    const same = await takeInkAnnotations(untouched, RENDER_SCALE);
+    expect(same.bytes).toBe(untouched);
+    expect(same.pages.size).toBe(0);
+    await expect(takeInkAnnotations(untouched, 0)).rejects.toThrow('Render scale must be positive');
   });
 });
